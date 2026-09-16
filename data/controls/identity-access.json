@@ -1,0 +1,486 @@
+[
+  {
+    "controlId": "IAM-AUTH-001",
+    "version": 1,
+    "status": "active",
+    "title": "Authenticated Access Only",
+    "group": "identity_access",
+    "domain": "authentication",
+    "subdomain": "access_control",
+    "layer": "prevent",
+    "requirement": "Protected functionality must only be reachable by an authenticated user.",
+    "rationale": "If any protected route accepts unauthenticated requests, every other authentication control on that route is moot.",
+    "threatIds": ["THR-IAM-UNAUTHENTICATED-ACCESS"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authentication", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": {
+      "SVL-1": ["route_review"],
+      "SVL-2": ["route_review", "anonymous_api_test"],
+      "SVL-3": ["route_review", "anonymous_api_test", "adversarial_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "anonymous_api_test",
+          "procedure": "Call every protected route with no credentials and confirm each is rejected.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        },
+        {
+          "type": "route_review",
+          "procedure": "Review the route table or middleware configuration to confirm every protected route is covered by an authentication check.",
+          "requiredEvidenceTypes": ["CODE", "CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["All unauthenticated access attempts to protected functionality are rejected."],
+    "evidenceRequirements": [
+      { "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] },
+      { "type": "CODE", "required": true }
+    ],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": ["IAM-AUTHZ-001"], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authentication"]
+  },
+  {
+    "controlId": "IAM-AUTH-002",
+    "version": 1,
+    "status": "active",
+    "title": "No Recoverable Password Storage",
+    "group": "identity_access",
+    "domain": "authentication",
+    "subdomain": "credential_storage",
+    "layer": "prevent",
+    "requirement": "Passwords must not be stored in a recoverable form.",
+    "rationale": "A database compromise must not directly yield usable plaintext passwords.",
+    "threatIds": ["THR-IAM-CREDENTIAL-EXPOSURE"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authentication", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": {
+      "SVL-1": ["config_review"],
+      "SVL-2": ["config_review"],
+      "SVL-3": ["config_review", "manual_review"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the credential storage schema and confirm no reversible encoding or plaintext column exists for passwords.",
+          "requiredEvidenceTypes": ["CODE", "CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No plaintext or reversibly-encoded password value can be retrieved from storage."],
+    "evidenceRequirements": [{ "type": "CODE", "required": true }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": ["IAM-AUTH-003"], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authentication", "credential"]
+  },
+  {
+    "controlId": "IAM-AUTH-003",
+    "version": 1,
+    "status": "active",
+    "title": "Validated Password Hashing",
+    "group": "identity_access",
+    "domain": "authentication",
+    "subdomain": "credential_storage",
+    "layer": "prevent",
+    "requirement": "Password storage must use a validated password hashing algorithm.",
+    "rationale": "A weak or unsalted hash lets a stolen credential database be cracked offline at scale.",
+    "threatIds": ["THR-IAM-CREDENTIAL-EXPOSURE", "THR-IAM-OFFLINE-CRACKING"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authentication", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": {
+      "SVL-1": ["config_review"],
+      "SVL-2": ["config_review"],
+      "SVL-3": ["config_review", "manual_review"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm the hashing algorithm and parameters (e.g. bcrypt, scrypt, argon2 with an adequate cost factor) used for password storage.",
+          "requiredEvidenceTypes": ["CODE", "CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["Passwords are hashed with a validated, adaptive, salted hashing algorithm."],
+    "evidenceRequirements": [{ "type": "CODE", "required": true }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": ["IAM-AUTH-002"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authentication", "credential", "cryptography"]
+  },
+  {
+    "controlId": "IAM-AUTH-004",
+    "version": 1,
+    "status": "active",
+    "title": "Login Brute-force Protection",
+    "group": "identity_access",
+    "domain": "authentication",
+    "subdomain": "login_defense",
+    "layer": "prevent",
+    "requirement": "The login request must be protected against repeated automated attempts.",
+    "rationale": "Without a throttle, an attacker can guess passwords or replay leaked credentials at unlimited speed.",
+    "threatIds": ["THR-IAM-BRUTE-FORCE", "THR-IAM-CREDENTIAL-STUFFING"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authentication", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": {
+      "SVL-1": ["config_review"],
+      "SVL-2": ["config_review", "dynamic_test"],
+      "SVL-3": ["config_review", "dynamic_test", "adversarial_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "dynamic_test",
+          "procedure": "Submit repeated failed login attempts for a single account and from a single source, and confirm the request is throttled or the account/source is temporarily locked.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": [
+      "Repeated login attempts against a single account are rate-limited or trigger a lockout.",
+      "Repeated login attempts from a single network source are rate-limited."
+    ],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authentication", "rate_limit"]
+  },
+  {
+    "controlId": "IAM-AUTH-005",
+    "version": 1,
+    "status": "active",
+    "title": "Privileged MFA",
+    "group": "identity_access",
+    "domain": "authentication",
+    "subdomain": "privileged_authentication",
+    "layer": "prevent",
+    "requirement": "Administrator and other privileged accounts must use multi-factor authentication.",
+    "rationale": "A compromised password alone must not grant privileged access.",
+    "threatIds": ["THR-IAM-ACCOUNT-TAKEOVER"],
+    "applicability": {
+      "when": { "all": [{ "fact": "identities", "operator": "contains", "value": "administrator" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": {
+      "SVL-1": ["config_review"],
+      "SVL-2": ["config_review", "manual_test"],
+      "SVL-3": ["config_review", "manual_test", "adversarial_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "manual_test",
+          "procedure": "Attempt a privileged login using only the password factor and confirm the login does not complete.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["Privileged accounts cannot complete login with a password alone."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["application", "security"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "mfa", "privileged"]
+  },
+  {
+    "controlId": "IAM-AUTH-006",
+    "version": 1,
+    "status": "active",
+    "title": "Single-use Password Reset Token",
+    "group": "identity_access",
+    "domain": "authentication",
+    "subdomain": "account_recovery",
+    "layer": "prevent",
+    "requirement": "A password reset token must be single-use and have a limited lifetime.",
+    "rationale": "A reusable or long-lived reset token widens the window in which it can be intercepted and replayed.",
+    "threatIds": ["THR-IAM-TOKEN-REPLAY"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authentication", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": {
+      "SVL-1": ["config_review"],
+      "SVL-2": ["config_review", "dynamic_test"],
+      "SVL-3": ["config_review", "dynamic_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "dynamic_test",
+          "procedure": "Use a password reset token twice, and use one after its expiry window, and confirm both are rejected.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": [
+      "A password reset token is rejected on second use.",
+      "A password reset token is rejected after its expiry window."
+    ],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authentication", "account_recovery"]
+  },
+  {
+    "controlId": "IAM-AUTH-007",
+    "version": 1,
+    "status": "active",
+    "title": "Session Invalidation on Credential Change",
+    "group": "identity_access",
+    "domain": "authentication",
+    "subdomain": "session_lifecycle",
+    "layer": "prevent",
+    "requirement": "Existing sessions must be invalidated after a password change or account recovery.",
+    "rationale": "If an attacker already holds a live session, changing the password alone does not remove their access.",
+    "threatIds": ["THR-IAM-SESSION-HIJACK"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authentication", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": {
+      "SVL-1": ["config_review"],
+      "SVL-2": ["config_review", "dynamic_test"],
+      "SVL-3": ["config_review", "dynamic_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "dynamic_test",
+          "procedure": "Hold an active session, change the account password through a second channel, and confirm the original session is no longer valid.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["All sessions issued before a password change or account recovery are invalidated by that event."],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authentication", "session"]
+  },
+  {
+    "controlId": "IAM-AUTHZ-001",
+    "version": 1,
+    "status": "active",
+    "title": "Server-side Authorization",
+    "group": "identity_access",
+    "domain": "authorization",
+    "subdomain": "enforcement_location",
+    "layer": "prevent",
+    "requirement": "Every protected action must perform server-side authorization.",
+    "rationale": "An authorization check that exists only in client-side code can be bypassed by calling the API directly.",
+    "threatIds": ["THR-IAM-CLIENT-SIDE-BYPASS"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authorization", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": {
+      "SVL-1": ["code_review"],
+      "SVL-2": ["code_review", "dynamic_test"],
+      "SVL-3": ["code_review", "dynamic_test", "adversarial_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "dynamic_test",
+          "procedure": "Call each protected API directly, bypassing the client UI, and confirm the server independently enforces authorization.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["Every protected action is rejected server-side when the authorization condition is not met, regardless of client-side state."],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": ["IAM-AUTH-001"], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authorization"]
+  },
+  {
+    "controlId": "IAM-AUTHZ-002",
+    "version": 1,
+    "status": "active",
+    "title": "Object-level Authorization",
+    "group": "identity_access",
+    "domain": "authorization",
+    "subdomain": "object_level_access",
+    "layer": "prevent",
+    "requirement": "A user must not be able to access another user's object by manipulating an identifier.",
+    "rationale": "Object identifiers are frequently guessable or enumerable; ownership must be checked independently of the identifier's validity.",
+    "threatIds": ["THR-IAM-IDOR"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authorization", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": {
+      "SVL-1": ["code_review"],
+      "SVL-2": ["code_review", "dynamic_test"],
+      "SVL-3": ["code_review", "dynamic_test", "adversarial_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "dynamic_test",
+          "procedure": "Using user A's credentials, request an object owned by user B and confirm access is denied.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["Requests for an object owned by another user are denied.", "Object identifiers alone do not grant access."],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": ["IAM-AUTHZ-001"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authorization", "idor"]
+  },
+  {
+    "controlId": "IAM-AUTHZ-003",
+    "version": 1,
+    "status": "active",
+    "title": "Admin API Isolation",
+    "group": "identity_access",
+    "domain": "authorization",
+    "subdomain": "function_level_access",
+    "layer": "prevent",
+    "requirement": "A regular user must not be able to call an administrator API.",
+    "rationale": "Function-level authorization gaps let a low-privilege account reach administrative functionality directly.",
+    "threatIds": ["THR-IAM-PRIVILEGE-ESCALATION"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.adminInterface", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": {
+      "SVL-1": ["code_review"],
+      "SVL-2": ["code_review", "dynamic_test"],
+      "SVL-3": ["code_review", "dynamic_test", "adversarial_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "dynamic_test",
+          "procedure": "Using a regular user's credentials, call each administrator API and confirm access is denied.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["Every administrator API rejects requests from non-administrator identities."],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": ["IAM-AUTHZ-001"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authorization", "admin"]
+  },
+  {
+    "controlId": "IAM-AUTHZ-004",
+    "version": 1,
+    "status": "active",
+    "title": "Privileged Field Assignment Protection",
+    "group": "identity_access",
+    "domain": "authorization",
+    "subdomain": "property_level_access",
+    "layer": "prevent",
+    "requirement": "A client must not be able to escalate privilege by setting a privilege-related field directly (e.g. role, permission, isAdmin, owner, approved).",
+    "rationale": "Binding a request body directly onto a privileged model without filtering allows an attacker to set fields the UI never exposes.",
+    "threatIds": ["THR-IAM-MASS-ASSIGNMENT"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authorization", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": {
+      "SVL-1": ["code_review"],
+      "SVL-2": ["code_review", "dynamic_test"],
+      "SVL-3": ["code_review", "dynamic_test", "adversarial_test"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "dynamic_test",
+          "procedure": "Submit a write request that includes a privileged field (role, permission, isAdmin, owner, approved) not exposed by the UI, and confirm the server ignores or rejects it.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["Privileged fields included in a client request body do not change the stored value unless the requester is independently authorized to change them."],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": ["IAM-AUTHZ-001"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authorization", "mass_assignment"]
+  },
+  {
+    "controlId": "IAM-AUTHZ-005",
+    "version": 1,
+    "status": "active",
+    "title": "Default-deny Authorization",
+    "group": "identity_access",
+    "domain": "authorization",
+    "subdomain": "authorization_model",
+    "layer": "prevent",
+    "requirement": "Authorization decisions must default to deny.",
+    "rationale": "A default-allow model silently grants access to any route or field an authorization rule forgets to cover.",
+    "threatIds": ["THR-IAM-PRIVILEGE-ESCALATION"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.authorization", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": {
+      "SVL-1": ["code_review"],
+      "SVL-2": ["code_review"],
+      "SVL-3": ["code_review", "manual_review"]
+    },
+    "verification": {
+      "methods": [
+        {
+          "type": "code_review",
+          "procedure": "Review the authorization middleware/framework configuration and confirm a request with no matching rule is denied rather than allowed.",
+          "requiredEvidenceTypes": ["CODE", "CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["A request that matches no explicit authorization rule is denied."],
+    "evidenceRequirements": [{ "type": "CODE", "required": true }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": ["IAM-AUTHZ-001"], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["iam", "authorization"]
+  }
+]
