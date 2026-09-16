@@ -1,0 +1,10 @@
+{
+  "exposure": ["internet_public", "partner_network", "internal_network", "vpn_zero_trust", "local_only", "offline"],
+  "identities": ["anonymous", "user", "paid_user", "partner", "operator", "administrator", "super_administrator", "service_account", "machine_identity"],
+  "dataClassification": [
+    { "id": "D0", "name": "Public", "description": "May be disclosed externally." },
+    { "id": "D1", "name": "Internal", "description": "For internal organizational use." },
+    { "id": "D2", "name": "Confidential", "description": "Disclosure causes business or personal harm.", "examples": ["personal_data", "contract_information", "internal_documents"] },
+    { "id": "D3", "name": "Restricted", "description": "Disclosure causes severe harm.", "examples": ["credentials", "financial_information", "medical_information", "secrets", "api_keys", "encryption_keys", "cash_equivalent_assets", "critical_trade_secrets"] }
+  ]
+}

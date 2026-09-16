@@ -1,0 +1,30 @@
+{
+  "principles": [
+    { "id": "P1", "title": "Assume Breach", "statement": "No security control is assumed to be absolutely safe. Always ask: if this control fails, what is the next line of defense?" },
+    { "id": "P2", "title": "Least Privilege", "statement": "Every subject (user, service, database, CI/CD, cloud IAM) is granted only the minimum privilege it requires." },
+    { "id": "P3", "title": "Zero Implicit Trust", "statement": "Client, browser, mobile app, desktop app, internal network, third-party API, webhook, AI model output, user-supplied files, request headers, and internal services are never trusted automatically." },
+    { "id": "P4", "title": "Defense in Depth", "statement": "No single security mechanism is relied upon. Controls are layered, e.g. input validation, parameterized query, least-privilege DB account, data encryption, key isolation, monitoring." },
+    { "id": "P5", "title": "Fail Secure", "statement": "An error must never resolve toward disabling a security control. An authentication server error must reject the request, never allow it unauthenticated." },
+    { "id": "P6", "title": "Verifiable Security", "statement": "A control being applied is not enough; it must be verifiable. Requirement, Verification, and Evidence must all exist together." },
+    { "id": "P7", "title": "Risk-based Security", "statement": "Not every project is forced through the same controls. Applicable scope is determined by risk level and attack surface." }
+  ],
+  "antiPatterns": [
+    { "id": "AP-JUDGE-1", "wrongAssumption": "95% of all checklist items PASS, therefore the system is safe.", "correctAssumption": "Completion rate does not equal security level." },
+    { "id": "AP-JUDGE-2", "wrongAssumption": "The security scanner reported zero findings, therefore there are no vulnerabilities.", "correctAssumption": "A scanner's silence is not proof of absence." },
+    { "id": "AP-JUDGE-3", "wrongAssumption": "A WAF is installed, therefore SQL injection is safe.", "correctAssumption": "A compensating control does not eliminate the underlying defect." },
+    { "id": "AP-JUDGE-4", "wrongAssumption": "The admin button is hidden from the UI, therefore the admin function is protected.", "correctAssumption": "Client-side hiding is not authorization." },
+    { "id": "AP-JUDGE-5", "wrongAssumption": "Encryption is applied, therefore sensitive data is safe.", "correctAssumption": "If the key is exposed at the same point as the data, the protection is limited." }
+  ],
+  "layers": [
+    { "layer": "context", "name": "Context", "purpose": "Determine what is being protected.", "examples": ["assets", "data", "architecture", "trust_boundary", "attack_surface", "threat_model"] },
+    { "layer": "prevent", "name": "Prevent", "purpose": "Lower the probability of a successful attack.", "examples": ["authentication", "authorization", "input_validation", "encryption", "secret_management", "infrastructure_hardening", "secure_coding", "supply_chain_security"] },
+    { "layer": "detect", "name": "Detect", "purpose": "Detect an attack or anomalous behavior.", "examples": ["logging", "audit", "monitoring", "alerting", "anomaly_detection"] },
+    { "layer": "contain_recover", "name": "Contain & Recover", "purpose": "Limit blast radius and recover after a breach.", "examples": ["segmentation", "least_privilege", "backup", "key_rotation", "session_revocation", "incident_response", "disaster_recovery"] },
+    { "layer": "assurance", "name": "Assurance", "purpose": "Verify that security controls actually work.", "examples": ["code_review", "sast", "dast", "sca", "pentest", "fuzzing", "threat_based_test", "evidence_review", "release_gate"] }
+  ],
+  "finalPrinciple": {
+    "attackerProgression": ["get_in", "escalate", "reach_critical_assets", "remain_undetected", "cause_irreversible_damage"],
+    "defenseGoal": ["prevent", "detect", "contain", "respond", "recover", "verify"],
+    "statement": "The goal is a system where the failure of one security control does not lead to full system compromise."
+  }
+}

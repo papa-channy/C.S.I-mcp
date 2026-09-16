@@ -1,0 +1,12 @@
+{
+  "levels": [
+    { "id": "SVL-0", "name": "Experimental", "criteria": ["proof_of_concept", "no_real_users", "no_external_exposure", "no_sensitive_data"], "criteriaMatch": "all" },
+    { "id": "SVL-1", "name": "Standard", "criteria": ["limited_users", "low_sensitivity", "general_business_data"], "criteriaMatch": "all" },
+    { "id": "SVL-2", "name": "High", "criteria": ["internet_exposure", "login", "personal_data", "payment", "admin_functions", "important_apis", "enterprise_sensitive_data"], "criteriaMatch": "any" },
+    { "id": "SVL-3", "name": "Critical", "criteria": ["financial_core_function", "medical_safety_critical_system", "large_scale_personal_data", "credential_management", "infrastructure_control_plane", "encryption_key_management", "software_supply_chain", "large_scale_user_asset_management"], "criteriaMatch": "any" }
+  ],
+  "autoEscalation": {
+    "minimumSvl2": ["payment_processing", "administrator_interface", "personal_data", "external_user_authentication", "production_infrastructure_control", "secret_management"],
+    "requiresSvl3Review": ["medical_safety", "financial_core", "encryption_key_infrastructure", "identity_provider", "software_update_infrastructure", "cicd_control_plane", "large_scale_credential_storage"]
+  }
+}
