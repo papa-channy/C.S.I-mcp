@@ -1,0 +1,40 @@
+{
+  "catalog": "USSVS",
+  "catalogVersion": "2.0.0",
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-09-16T00:00:00Z",
+  "core": {
+    "files": ["core/principles.json", "core/security-levels.json", "core/profile-taxonomy.json"]
+  },
+  "catalogs": {
+    "files": ["catalogs/threats.json", "catalogs/references.json", "catalogs/evidence-types.json", "catalogs/owner-roles.json", "catalogs/asset-types.json"]
+  },
+  "controls": {
+    "count": 12,
+    "files": ["controls/identity-access.json"]
+  },
+  "schemas": {
+    "files": [
+      "schemas/control-schema.json",
+      "schemas/threat-schema.json",
+      "schemas/project-profile-schema.json",
+      "schemas/asset-schema.json",
+      "schemas/control-assessment-schema.json",
+      "schemas/evidence-schema.json",
+      "schemas/finding-schema.json",
+      "schemas/attack-path-schema.json",
+      "schemas/risk-acceptance-schema.json",
+      "schemas/release-evaluation-schema.json"
+    ]
+  },
+  "process": {
+    "files": [
+      "process/verification-flow.json",
+      "process/release-gates.json",
+      "process/incident-response.json",
+      "process/exception-policy.json",
+      "process/metrics.json",
+      "process/deliverables.json"
+    ]
+  }
+}
