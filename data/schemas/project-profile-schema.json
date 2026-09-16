@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/project-profile-schema.json",
+  "title": "ProjectProfile",
+  "type": "object",
+  "properties": {
+    "projectId": { "type": "string", "minLength": 1 },
+    "securityLevel": { "type": "string", "enum": ["SVL-0", "SVL-1", "SVL-2", "SVL-3"] },
+    "exposure": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["internet_public", "partner_network", "internal_network", "vpn_zero_trust", "local_only", "offline"]
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "identities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["anonymous", "user", "paid_user", "partner", "operator", "administrator", "super_administrator", "service_account", "machine_identity"]
+      }
+    },
+    "dataClasses": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["D0", "D1", "D2", "D3"] }
+    },
+    "features": {
+      "type": "object",
+      "properties": {
+        "authentication": { "type": "boolean" },
+        "authorization": { "type": "boolean" },
+        "adminInterface": { "type": "boolean" },
+        "fileUpload": { "type": "boolean" },
+        "payment": { "type": "boolean" },
+        "webhook": { "type": "boolean" },
+        "oauth": { "type": "boolean" },
+        "ai": { "type": "boolean" }
+      },
+      "additionalProperties": { "type": "boolean" }
+    },
+    "technologies": {
+      "type": "object",
+      "properties": {
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "frameworks": { "type": "array", "items": { "type": "string" } },
+        "databases": { "type": "array", "items": { "type": "string" } },
+        "cloud": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["projectId", "securityLevel", "exposure", "components", "identities", "dataClasses", "features", "technologies"],
+  "additionalProperties": false
+}
