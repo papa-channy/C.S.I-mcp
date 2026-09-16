@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/control-schema.json",
+  "title": "Control",
+  "type": "object",
+  "$defs": {
+    "controlId": {
+      "type": "string",
+      "pattern": "^[A-Z]+(-[A-Z]+)*-[0-9]{3}$"
+    },
+    "svl": {
+      "type": "string",
+      "enum": ["SVL-0", "SVL-1", "SVL-2", "SVL-3"]
+    },
+    "evidenceType": {
+      "type": "string",
+      "enum": [
+        "CODE", "CONFIG", "AUTOMATED_TEST", "MANUAL_TEST", "SCAN", "LOG",
+        "AUDIT_LOG", "ARCHITECTURE", "CI_ARTIFACT", "DEPLOYMENT_RECORD",
+        "SCREENSHOT", "TICKET", "REPORT", "MANUAL_REVIEW"
+      ]
+    },
+    "ownerRole": {
+      "type": "string",
+      "enum": [
+        "application", "frontend", "backend", "infrastructure", "devops",
+        "security", "product", "privacy", "operations", "vendor"
+      ]
+    },
+    "factCondition": {
+      "type": "object",
+      "properties": {
+        "fact": { "type": "string", "minLength": 1 },
+        "operator": {
+          "type": "string",
+          "enum": ["eq", "ne", "in", "not_in", "contains", "intersects", "gt", "gte", "lt", "lte"]
+        },
+        "value": {}
+      },
+      "required": ["fact", "operator", "value"],
+      "additionalProperties": false
+    },
+    "ruleNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "all": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ruleNode" } }
+          },
+          "required": ["all"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "any": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ruleNode" } }
+          },
+          "required": ["any"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/factCondition" }
+      ]
+    }
+  },
+  "properties": {
+    "controlId": { "$ref": "#/$defs/controlId" },
+    "version": { "type": "integer", "minimum": 1 },
+    "status": { "type": "string", "enum": ["draft", "active", "deprecated", "retired"] },
+    "replacedBy": { "$ref": "#/$defs/controlId" },
+    "title": { "type": "string", "minLength": 1 },
+    "group": { "type": "string", "minLength": 1 },
+    "domain": { "type": "string", "minLength": 1 },
+    "subdomain": { "type": "string", "minLength": 1 },
+    "layer": {
+      "type": "string",
+      "enum": ["context", "prevent", "detect", "contain_recover", "assurance"]
+    },
+    "requirement": { "type": "string", "minLength": 1 },
+    "rationale": { "type": "string", "minLength": 1 },
+    "threatIds": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^THR-[A-Z0-9-]+$" }
+    },
+    "applicability": {
+      "type": "object",
+      "properties": { "when": { "$ref": "#/$defs/ruleNode" } },
+      "required": ["when"],
+      "additionalProperties": false
+    },
+    "baselineRisk": {
+      "type": "object",
+      "properties": {
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "informational"] }
+      },
+      "required": ["severity"],
+      "additionalProperties": false
+    },
+    "assurance": {
+      "type": "object",
+      "properties": {
+        "SVL-0": { "type": "array", "items": { "type": "string" } },
+        "SVL-1": { "type": "array", "items": { "type": "string" } },
+        "SVL-2": { "type": "array", "items": { "type": "string" } },
+        "SVL-3": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "methods": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "minLength": 1 },
+              "procedure": { "type": "string", "minLength": 1 },
+              "requiredEvidenceTypes": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/evidenceType" }
+              },
+              "minimumSvl": { "$ref": "#/$defs/svl" },
+              "automatable": { "type": "boolean" }
+            },
+            "required": ["type", "procedure", "requiredEvidenceTypes", "automatable"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["methods"],
+      "additionalProperties": false
+    },
+    "passCriteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "evidenceRequirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "$ref": "#/$defs/evidenceType" },
+          "required": { "type": "boolean" },
+          "requiredFor": { "type": "array", "items": { "$ref": "#/$defs/svl" } }
+        },
+        "required": ["type", "required"],
+        "additionalProperties": false
+      }
+    },
+    "ownerRoles": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/ownerRole" }
+    },
+    "references": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "relationships": {
+      "type": "object",
+      "properties": {
+        "dependsOn": { "type": "array", "items": { "$ref": "#/$defs/controlId" } },
+        "relatedTo": { "type": "array", "items": { "$ref": "#/$defs/controlId" } },
+        "supersedes": { "type": "array", "items": { "$ref": "#/$defs/controlId" } },
+        "compensatesFor": { "type": "array", "items": { "$ref": "#/$defs/controlId" } },
+        "conflictsWith": { "type": "array", "items": { "$ref": "#/$defs/controlId" } }
+      },
+      "additionalProperties": false
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": [
+    "controlId", "version", "status", "title", "group", "domain", "subdomain",
+    "layer", "requirement", "rationale", "threatIds", "applicability",
+    "baselineRisk", "verification", "passCriteria", "ownerRoles"
+  ],
+  "additionalProperties": false
+}
