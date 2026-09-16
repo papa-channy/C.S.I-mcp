@@ -1,0 +1,3 @@
+{
+  "lifecycle": ["request", "risk_analysis", "approval", "compensating_control", "expiration", "review", "fix_renew_or_reject"]
+}

@@ -1,0 +1,23 @@
+{
+  "finalDeliverables": [
+    "security_scope", "security_profile", "asset_registry", "data_flow_diagram",
+    "architecture_diagram", "threat_model", "control_matrix", "evidence_package",
+    "findings_report", "attack_path_report", "residual_risk_register",
+    "release_gate_report", "incident_response_plan", "security_operations_guide"
+  ],
+  "finalJudgmentDimensions": [
+    "control_compliance", "attack_path_status", "open_findings", "residual_risk", "operational_readiness"
+  ],
+  "finalQuestions": [
+    "What assets must we protect?",
+    "Where do those assets exist?",
+    "Who can access them?",
+    "Where can an attacker get in?",
+    "What defenses exist on each attack path?",
+    "Have those defenses actually been verified?",
+    "If one defense fails, how far can an attacker get?",
+    "Can we detect the attack?",
+    "Can we contain the spread of damage?",
+    "Can we restore the system to a trustworthy state?"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "forbiddenInterpretations": [
+    { "metric": "pass_percentage", "wrongConclusion": "A high pass percentage means the system is secure." },
+    { "metric": "vulnerability_count", "wrongConclusion": "A low count means the system is secure." },
+    { "metric": "scanner_finding_count", "wrongConclusion": "Zero scanner findings means the system is secure." },
+    { "metric": "patch_count", "wrongConclusion": "A high patch count means the system is secure." }
+  ],
+  "recommendedMetrics": [
+    "critical_open_findings", "high_open_findings", "mean_time_to_remediate",
+    "unreviewed_attack_paths", "expired_risk_acceptances", "unpatched_critical_cve",
+    "privileged_account_count", "secret_rotation_age", "backup_restore_success",
+    "security_test_coverage"
+  ]
+}
