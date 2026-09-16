@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/risk-acceptance-schema.json",
+  "title": "RiskAcceptance",
+  "type": "object",
+  "properties": {
+    "riskAcceptanceId": { "type": "string", "pattern": "^RA-[0-9]+$" },
+    "projectId": { "type": "string", "minLength": 1 },
+    "controlId": { "type": "string" },
+    "findingIds": { "type": "array", "items": { "type": "string" } },
+    "reason": { "type": "string", "minLength": 1 },
+    "compensatingControls": { "type": "array", "items": { "type": "string" } },
+    "approvedBy": { "type": "string", "minLength": 1 },
+    "approvedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "reviewDate": { "type": ["string", "null"], "format": "date-time" },
+    "status": { "type": "string", "enum": ["active", "expired", "revoked"] }
+  },
+  "required": ["riskAcceptanceId", "projectId", "controlId", "reason", "approvedBy", "approvedAt", "expiresAt", "status"],
+  "additionalProperties": false
+}

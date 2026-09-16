@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/release-evaluation-schema.json",
+  "title": "ReleaseEvaluation",
+  "type": "object",
+  "properties": {
+    "projectId": { "type": "string", "minLength": 1 },
+    "gate": { "type": "integer", "minimum": 0, "maximum": 4 },
+    "controlCoverage": { "type": "number", "minimum": 0, "maximum": 100 },
+    "criticalFindings": { "type": "integer", "minimum": 0 },
+    "highFindings": { "type": "integer", "minimum": 0 },
+    "unblockedCriticalAttackPaths": { "type": "integer", "minimum": 0 },
+    "residualRisksAccepted": { "type": "integer", "minimum": 0 },
+    "incidentResponseVerified": { "type": "boolean" },
+    "backupRestoreVerified": { "type": "boolean" },
+    "result": { "type": "string", "enum": ["approved", "blocked"] },
+    "evaluatedAt": { "type": "string", "format": "date-time" }
+  },
+  "required": [
+    "projectId", "gate", "controlCoverage", "criticalFindings", "highFindings",
+    "unblockedCriticalAttackPaths", "residualRisksAccepted",
+    "incidentResponseVerified", "backupRestoreVerified", "result", "evaluatedAt"
+  ],
+  "additionalProperties": false
+}
