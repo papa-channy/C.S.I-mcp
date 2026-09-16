@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/asset-schema.json",
+  "title": "Asset",
+  "type": "object",
+  "properties": {
+    "assetId": { "type": "string", "pattern": "^AST-[0-9]+$" },
+    "assetName": { "type": "string", "minLength": 1 },
+    "assetType": { "type": "string", "minLength": 1 },
+    "dataClassification": { "type": "string", "enum": ["D0", "D1", "D2", "D3"] },
+    "owner": { "type": "string", "minLength": 1 },
+    "storage": { "type": "string", "minLength": 1 },
+    "process": { "type": "string" },
+    "access": { "type": "array", "items": { "type": "string" } },
+    "backup": { "type": "boolean" },
+    "encryption": { "type": "string" },
+    "businessImpact": { "type": "string", "minLength": 1 }
+  },
+  "required": ["assetId", "assetName", "assetType", "dataClassification", "owner", "storage", "access", "backup", "businessImpact"],
+  "additionalProperties": false
+}

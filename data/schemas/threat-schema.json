@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/threat-schema.json",
+  "title": "Threat",
+  "type": "object",
+  "properties": {
+    "threatId": { "type": "string", "pattern": "^THR-[A-Z0-9-]+$" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "category": { "type": "string", "minLength": 1 }
+  },
+  "required": ["threatId", "title", "description", "category"],
+  "additionalProperties": false
+}
