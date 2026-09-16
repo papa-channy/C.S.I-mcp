@@ -1,0 +1,17 @@
+{
+  "threats": [
+    { "threatId": "THR-IAM-UNAUTHENTICATED-ACCESS", "title": "Unauthenticated Access", "description": "An attacker reaches a protected function without presenting valid credentials.", "category": "authentication" },
+    { "threatId": "THR-IAM-CREDENTIAL-EXPOSURE", "title": "Credential Exposure", "description": "Stored credentials are recovered in plaintext or a reversible form after a data store compromise.", "category": "authentication" },
+    { "threatId": "THR-IAM-OFFLINE-CRACKING", "title": "Offline Password Cracking", "description": "A stolen password hash is cracked offline because it used a weak or unsalted hashing scheme.", "category": "authentication" },
+    { "threatId": "THR-IAM-BRUTE-FORCE", "title": "Brute Force Login", "description": "An attacker submits a large number of password guesses against the login endpoint.", "category": "authentication" },
+    { "threatId": "THR-IAM-CREDENTIAL-STUFFING", "title": "Credential Stuffing", "description": "An attacker replays credentials leaked from other breaches against the login endpoint.", "category": "authentication" },
+    { "threatId": "THR-IAM-ACCOUNT-TAKEOVER", "title": "Account Takeover", "description": "An attacker gains persistent control of a privileged account using a single compromised factor.", "category": "authentication" },
+    { "threatId": "THR-IAM-TOKEN-REPLAY", "title": "Token Replay", "description": "A password reset or similar single-use token is reused or replayed after its intended window.", "category": "authentication" },
+    { "threatId": "THR-IAM-SESSION-HIJACK", "title": "Session Hijack", "description": "An attacker continues to use a session that should have been invalidated after a security-relevant event.", "category": "session" },
+    { "threatId": "THR-IAM-CLIENT-SIDE-BYPASS", "title": "Client-side Authorization Bypass", "description": "An attacker calls a protected API directly, bypassing authorization checks that only exist in client-side UI code.", "category": "authorization" },
+    { "threatId": "THR-IAM-IDOR", "title": "Insecure Direct Object Reference", "description": "An attacker accesses another user's object by manipulating an identifier, without an accompanying ownership check.", "category": "authorization" },
+    { "threatId": "THR-IAM-PRIVILEGE-ESCALATION", "title": "Privilege Escalation", "description": "A low-privilege identity gains access to functionality or data reserved for a higher-privilege role.", "category": "authorization" },
+    { "threatId": "THR-IAM-MASS-ASSIGNMENT", "title": "Mass Assignment", "description": "An attacker sets a privileged field (e.g. role, isAdmin) by including it in a request body the server binds without filtering.", "category": "authorization" },
+    { "threatId": "THR-INJ-001", "title": "SQL Injection", "description": "External input changes the structure of a SQL query executed by the application.", "category": "injection" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "assetTypes": ["data", "service", "key", "account", "credential", "document", "infrastructure_resource"],
+  "example": {
+    "assetId": "AST-017",
+    "assetName": "Customer Credential",
+    "assetType": "credential",
+    "dataClassification": "D3",
+    "storage": "authentication_db",
+    "access": ["auth_service"],
+    "encryption": "password_hash",
+    "businessImpact": "account_takeover"
+  }
+}

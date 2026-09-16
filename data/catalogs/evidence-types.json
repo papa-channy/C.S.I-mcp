@@ -1,0 +1,15 @@
+{
+  "types": [
+    "CODE", "CONFIG", "AUTOMATED_TEST", "MANUAL_TEST", "SCAN", "LOG",
+    "AUDIT_LOG", "ARCHITECTURE", "CI_ARTIFACT", "DEPLOYMENT_RECORD",
+    "SCREENSHOT", "TICKET", "REPORT", "MANUAL_REVIEW"
+  ],
+  "priorityTiers": [
+    { "tier": 1, "label": "automated_reproducible_evidence", "types": ["AUTOMATED_TEST", "SCAN", "CI_ARTIFACT"] },
+    { "tier": 2, "label": "configuration_or_code", "types": ["CODE", "CONFIG", "ARCHITECTURE", "DEPLOYMENT_RECORD"] },
+    { "tier": 3, "label": "manual_test_result", "types": ["MANUAL_TEST", "MANUAL_REVIEW", "AUDIT_LOG", "LOG"] },
+    { "tier": 4, "label": "screenshot", "types": ["SCREENSHOT"] },
+    { "tier": 5, "label": "ticket_or_report", "types": ["TICKET", "REPORT"] }
+  ],
+  "insufficientEvidenceExamples": ["A developer states the control was applied, with no artifact attached."]
+}
