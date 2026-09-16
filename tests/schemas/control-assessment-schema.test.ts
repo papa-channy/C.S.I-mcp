@@ -64,6 +64,20 @@ describe("control-assessment-schema", () => {
     expect(validate(doc)).toBe(false);
   });
 
+  it("rejects a manual_override applicability with an empty-string reason", () => {
+    const validate = compileSchemaFromFile("data/schemas/control-assessment-schema.json");
+    const doc = {
+      ...baseAssessment,
+      applicability: {
+        autoResult: "applicable",
+        finalResult: "not_applicable",
+        source: "manual_override",
+        reason: "",
+      },
+    };
+    expect(validate(doc)).toBe(false);
+  });
+
   it("accepts a manual_override applicability with reason", () => {
     const validate = compileSchemaFromFile("data/schemas/control-assessment-schema.json");
     const doc = {

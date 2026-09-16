@@ -1,5 +1,48 @@
+import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { compileSchemaFromFile, loadJson } from "../../src/validate.js";
+
+const CONTROLS_DIR = "data/controls";
+
+function controlFiles(): string[] {
+  return readdirSync(CONTROLS_DIR)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => `${CONTROLS_DIR}/${name}`);
+}
+
+describe("controls/*.json (all domain files)", () => {
+  it("every control in every file validates against control-schema.json", () => {
+    const validate = compileSchemaFromFile("data/schemas/control-schema.json");
+    for (const file of controlFiles()) {
+      const controls = loadJson<unknown[]>(file);
+      for (const control of controls) {
+        expect(validate(control), `${file}: ${JSON.stringify(validate.errors)}`).toBe(true);
+      }
+    }
+  });
+
+  it("has unique controlIds across all files combined", () => {
+    const ids: string[] = [];
+    for (const file of controlFiles()) {
+      const controls = loadJson<{ controlId: string }[]>(file);
+      ids.push(...controls.map((c) => c.controlId));
+    }
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("references only threatIds that exist in catalogs/threats.json, across all files combined", () => {
+    const threats = loadJson<{ threats: { threatId: string }[] }>("data/catalogs/threats.json");
+    const knownThreatIds = new Set(threats.threats.map((t) => t.threatId));
+    for (const file of controlFiles()) {
+      const controls = loadJson<{ threatIds: string[] }[]>(file);
+      for (const control of controls) {
+        for (const threatId of control.threatIds) {
+          expect(knownThreatIds.has(threatId), `${file}: unknown threatId: ${threatId}`).toBe(true);
+        }
+      }
+    }
+  });
+});
 
 describe("controls/identity-access.json", () => {
   it("has exactly 12 controls, each validating against control-schema.json", () => {

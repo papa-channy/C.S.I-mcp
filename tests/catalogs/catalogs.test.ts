@@ -30,6 +30,14 @@ describe("catalogs/evidence-types.json", () => {
     const tieredTypes = data.priorityTiers.flatMap((t) => t.types);
     expect(new Set(tieredTypes)).toEqual(new Set(data.types));
   });
+
+  it("matches control-schema.json's $defs.evidenceType.enum exactly", () => {
+    const data = loadJson<{ types: string[] }>("data/catalogs/evidence-types.json");
+    const schema = loadJson<{ $defs: { evidenceType: { enum: string[] } } }>(
+      "data/schemas/control-schema.json"
+    );
+    expect([...data.types].sort()).toEqual([...schema.$defs.evidenceType.enum].sort());
+  });
 });
 
 describe("catalogs/owner-roles.json", () => {
@@ -39,6 +47,14 @@ describe("catalogs/owner-roles.json", () => {
       "application", "frontend", "backend", "infrastructure", "devops",
       "security", "product", "privacy", "operations", "vendor",
     ]);
+  });
+
+  it("matches control-schema.json's $defs.ownerRole.enum exactly", () => {
+    const data = loadJson<{ roles: string[] }>("data/catalogs/owner-roles.json");
+    const schema = loadJson<{ $defs: { ownerRole: { enum: string[] } } }>(
+      "data/schemas/control-schema.json"
+    );
+    expect([...data.roles].sort()).toEqual([...schema.$defs.ownerRole.enum].sort());
   });
 });
 

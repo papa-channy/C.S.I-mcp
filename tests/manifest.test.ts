@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { loadJson } from "../src/validate.js";
 
@@ -55,5 +55,23 @@ describe("data/manifest.json", () => {
       total += records.length;
     }
     expect(manifest.controls.count).toBe(total);
+  });
+
+  it("has no on-disk files in core/catalogs/controls/schemas/process missing from the manifest", () => {
+    const manifest = loadJson<Manifest>("data/manifest.json");
+    const categories: { dir: string; prefix: string; files: string[] }[] = [
+      { dir: "data/core", prefix: "core/", files: manifest.core.files },
+      { dir: "data/catalogs", prefix: "catalogs/", files: manifest.catalogs.files },
+      { dir: "data/controls", prefix: "controls/", files: manifest.controls.files },
+      { dir: "data/schemas", prefix: "schemas/", files: manifest.schemas.files },
+      { dir: "data/process", prefix: "process/", files: manifest.process.files },
+    ];
+
+    for (const { dir, prefix, files } of categories) {
+      const onDisk = readdirSync(dir)
+        .filter((name) => name.endsWith(".json"))
+        .map((name) => `${prefix}${name}`);
+      expect(new Set(onDisk), `mismatch in ${dir}`).toEqual(new Set(files));
+    }
   });
 });

@@ -18,14 +18,7 @@
         "reason": { "type": "string" }
       },
       "required": ["autoResult", "finalResult", "source"],
-      "additionalProperties": false,
-      "if": {
-        "properties": { "source": { "const": "manual_override" } },
-        "required": ["source"]
-      },
-      "then": {
-        "required": ["reason"]
-      }
+      "additionalProperties": false
     },
     "status": {
       "type": "string",
@@ -54,6 +47,27 @@
     {
       "if": { "properties": { "status": { "const": "ACCEPTED_RISK" } }, "required": ["status"] },
       "then": { "properties": { "riskAcceptanceId": { "type": "string", "minLength": 1 } }, "required": ["riskAcceptanceId"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "applicability": {
+            "type": "object",
+            "properties": { "source": { "const": "manual_override" } },
+            "required": ["source"]
+          }
+        },
+        "required": ["applicability"]
+      },
+      "then": {
+        "properties": {
+          "applicability": {
+            "type": "object",
+            "properties": { "reason": { "type": "string", "minLength": 1 } },
+            "required": ["reason"]
+          }
+        }
+      }
     }
   ]
 }
