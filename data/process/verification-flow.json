@@ -1,0 +1,29 @@
+{
+  "flow": [
+    { "step": 1, "name": "project_context" },
+    { "step": 2, "name": "asset_identification" },
+    { "step": 3, "name": "architecture_data_flow" },
+    { "step": 4, "name": "attack_surface_identification" },
+    { "step": 5, "name": "threat_identification" },
+    { "step": 6, "name": "applicable_controls_selection" },
+    { "step": 7, "name": "security_verification" },
+    { "step": 8, "name": "evidence_collection" },
+    { "step": 9, "name": "finding_risk_analysis" },
+    { "step": 10, "name": "attack_path_analysis" },
+    { "step": 11, "name": "residual_risk_review" },
+    { "step": 12, "name": "release_gate" },
+    { "step": 13, "name": "continuous_monitoring" }
+  ],
+  "testingMatrix": {
+    "code_layer": ["code_review", "security_review", "sast", "secret_scan"],
+    "dependency_layer": ["sca", "cve_scan", "sbom"],
+    "application_layer": ["dast", "api_test", "business_logic_test"],
+    "runtime": ["configuration_test", "authentication_test", "authorization_test"],
+    "infrastructure": ["cloud_scan", "container_scan", "iac_scan"],
+    "adversarial": ["manual_pentest", "abuse_test", "threat_based_test", "fuzzing"]
+  },
+  "automationCoverage": {
+    "toolsFindWell": ["known_cve", "secret", "dependency", "simple_injection", "configuration"],
+    "requiresHumanVerification": ["authorization_logic", "business_logic", "attack_chain", "trust_boundary", "architecture", "abuse", "fraud"]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "gates": [
+    { "gate": 0, "name": "security_scope", "requires": ["security_profile", "asset_registry", "architecture", "data_classification"] },
+    { "gate": 1, "name": "architecture", "requires": ["trust_boundary", "threat_model", "privilege_model", "security_level", "critical_asset"] },
+    { "gate": 2, "name": "merge", "requires": ["code_review", "sast", "secret_scan", "dependency_scan", "security_test"] },
+    { "gate": 3, "name": "pre_production", "requires": ["authentication", "authorization", "configuration", "infrastructure", "backup", "logging", "monitoring"] },
+    {
+      "gate": 4,
+      "name": "production_release",
+      "requiresByLevel": {
+        "common": { "criticalFindings": 0 },
+        "SVL-2": { "criticalFindings": 0, "highFindings": "0_or_accepted_risk" },
+        "SVL-3": { "criticalFindings": 0, "highFindings": 0 }
+      }
+    }
+  ],
+  "releaseBlockers": [
+    "authentication_bypass", "administrator_privilege_escalation", "unauthenticated_rce",
+    "critical_sql_injection", "production_secret_exposure", "full_user_data_access",
+    "missing_backup", "unblocked_critical_attack_path", "production_admin_mfa_missing",
+    "signing_or_encryption_key_exposure"
+  ],
+  "revalidationTriggers": [
+    "authentication_change", "authorization_change", "database_change", "sensitive_data_addition",
+    "payment_addition", "file_upload_addition", "admin_function_addition", "third_party_addition",
+    "cloud_migration", "framework_major_upgrade", "new_mobile_or_desktop_app", "ai_adoption",
+    "security_incident", "critical_cve", "infrastructure_change"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "readinessChecklist": [
+    "revoke_all_sessions", "revoke_admin_sessions", "lock_user", "rotate_api_key",
+    "rotate_secret", "rotate_encryption_key", "isolate_server", "stop_malicious_deployment",
+    "rollback", "preserve_logs", "restore_backup"
+  ],
+  "keyQuestion": "If production were fully compromised right now, what would you do in the first 30 minutes?"
+}
