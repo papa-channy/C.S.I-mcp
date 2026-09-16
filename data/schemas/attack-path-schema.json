@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/attack-path-schema.json",
+  "title": "AttackPath",
+  "type": "object",
+  "properties": {
+    "attackPathId": { "type": "string", "pattern": "^AP-[0-9]+$" },
+    "entryPoint": { "type": "string", "minLength": 1 },
+    "initialPrivilege": { "type": "string" },
+    "steps": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "targetAsset": { "type": "string", "minLength": 1 },
+    "existingControls": { "type": "array", "items": { "type": "string" } },
+    "failedControls": { "type": "array", "items": { "type": "string" } },
+    "detectionCapability": { "type": "string" },
+    "impact": { "type": "string" },
+    "result": { "type": "string", "enum": ["blocked", "possible"] },
+    "relatedFindingIds": { "type": "array", "items": { "type": "string" } },
+    "reviewer": { "type": "string" }
+  },
+  "required": ["attackPathId", "entryPoint", "steps", "targetAsset", "result"],
+  "additionalProperties": false
+}
