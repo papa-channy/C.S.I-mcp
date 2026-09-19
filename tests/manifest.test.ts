@@ -29,7 +29,7 @@ describe("data/manifest.json", () => {
     }
   });
 
-  it("lists exactly the 10 schema files defined by the spec", () => {
+  it("lists exactly the 11 schema files defined by the spec", () => {
     const manifest = loadJson<Manifest>("data/manifest.json");
     expect(new Set(manifest.schemas.files)).toEqual(
       new Set([
@@ -43,6 +43,7 @@ describe("data/manifest.json", () => {
         "schemas/attack-path-schema.json",
         "schemas/risk-acceptance-schema.json",
         "schemas/release-evaluation-schema.json",
+        "schemas/criticality-formula-schema.json",
       ])
     );
   });

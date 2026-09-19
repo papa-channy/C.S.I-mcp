@@ -4,7 +4,7 @@
   "schemaVersion": "1.0.0",
   "generatedAt": "2026-09-16T00:00:00Z",
   "core": {
-    "files": ["core/principles.json", "core/security-levels.json", "core/profile-taxonomy.json"]
+    "files": ["core/principles.json", "core/security-levels.json", "core/profile-taxonomy.json", "core/criticality-weights.json"]
   },
   "catalogs": {
     "files": ["catalogs/threats.json", "catalogs/references.json", "catalogs/evidence-types.json", "catalogs/owner-roles.json", "catalogs/asset-types.json"]
@@ -24,7 +24,8 @@
       "schemas/finding-schema.json",
       "schemas/attack-path-schema.json",
       "schemas/risk-acceptance-schema.json",
-      "schemas/release-evaluation-schema.json"
+      "schemas/release-evaluation-schema.json",
+      "schemas/criticality-formula-schema.json"
     ]
   },
   "process": {

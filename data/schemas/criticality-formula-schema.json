@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/criticality-formula-schema.json",
+  "title": "CriticalityFormula",
+  "type": "object",
+  "properties": {
+    "formulaId": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "scaleMax": { "const": 9 },
+    "directions": {
+      "type": "object",
+      "properties": {
+        "impact": { "const": "higher_is_worse" },
+        "exploitability": { "const": "higher_is_worse" },
+        "exposure": { "const": "higher_is_worse" },
+        "privilegeRequired": { "const": "lower_is_worse" },
+        "detectionDifficulty": { "const": "higher_is_worse" }
+      },
+      "required": ["impact", "exploitability", "exposure", "privilegeRequired", "detectionDifficulty"],
+      "additionalProperties": false
+    },
+    "ranges": {
+      "type": "object",
+      "properties": {
+        "impact": { "type": "object", "properties": { "min": { "const": 1 }, "max": { "const": 5 } }, "required": ["min", "max"], "additionalProperties": false },
+        "exploitability": { "type": "object", "properties": { "min": { "const": 1 }, "max": { "const": 5 } }, "required": ["min", "max"], "additionalProperties": false },
+        "exposure": { "type": "object", "properties": { "min": { "const": 1 }, "max": { "const": 3 } }, "required": ["min", "max"], "additionalProperties": false },
+        "privilegeRequired": { "type": "object", "properties": { "min": { "const": 0 }, "max": { "const": 2 } }, "required": ["min", "max"], "additionalProperties": false },
+        "detectionDifficulty": { "type": "object", "properties": { "min": { "const": 0 }, "max": { "const": 2 } }, "required": ["min", "max"], "additionalProperties": false }
+      },
+      "required": ["impact", "exploitability", "exposure", "privilegeRequired", "detectionDifficulty"],
+      "additionalProperties": false
+    },
+    "weights": {
+      "type": "object",
+      "properties": {
+        "impact": { "type": "number", "minimum": 0, "maximum": 1 },
+        "exploitability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "exposure": { "type": "number", "minimum": 0, "maximum": 1 },
+        "privilegeRequired": { "type": "number", "minimum": 0, "maximum": 1 },
+        "detectionDifficulty": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["impact", "exploitability", "exposure", "privilegeRequired", "detectionDifficulty"],
+      "additionalProperties": false
+    },
+    "rounding": { "type": "string", "enum": ["round", "floor", "ceil"] }
+  },
+  "required": ["formulaId", "version", "scaleMax", "directions", "ranges", "weights", "rounding"],
+  "additionalProperties": false
+}
