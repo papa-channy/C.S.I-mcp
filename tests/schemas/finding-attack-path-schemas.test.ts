@@ -12,7 +12,20 @@ describe("finding-schema", () => {
     exploitability: 4,
     exposure: 3,
     privilegeRequired: 0,
-    detectability: 1,
+    detectionDifficulty: 1,
+    criticality: {
+      index: 9,
+      formulaId: "CRIT-DEFAULT",
+      formulaVersion: "1.0.0",
+      computedAt: "2026-09-19T05:00:00Z",
+    },
+    priority: {
+      index: 0,
+      source: "agent",
+      rationale: "Unauthenticated admin data exposure is actively exploitable right now.",
+      assignedBy: "agent-security-01",
+      assignedAt: "2026-09-19T05:00:00Z",
+    },
     severity: "critical",
     status: "open",
   };
@@ -30,6 +43,59 @@ describe("finding-schema", () => {
   it("rejects an out-of-range impact score", () => {
     const validate = compileSchemaFromFile("data/schemas/finding-schema.json");
     expect(validate({ ...valid, impact: 9 })).toBe(false);
+  });
+
+  it("rejects a priority object missing rationale", () => {
+    const validate = compileSchemaFromFile("data/schemas/finding-schema.json");
+    const { rationale, ...restPriority } = valid.priority;
+    expect(validate({ ...valid, priority: restPriority })).toBe(false);
+  });
+
+  it("rejects a criticality object missing formulaVersion", () => {
+    const validate = compileSchemaFromFile("data/schemas/finding-schema.json");
+    const { formulaVersion, ...restCriticality } = valid.criticality;
+    expect(validate({ ...valid, criticality: restCriticality })).toBe(false);
+  });
+
+  it("requires priorityOverrideReason when criticality.index>=8 and priority.index>=2", () => {
+    const validate = compileSchemaFromFile("data/schemas/finding-schema.json");
+    const highCLowUrgency = {
+      ...valid,
+      criticality: { ...valid.criticality, index: 9 },
+      priority: { ...valid.priority, index: 3 },
+    };
+    expect(validate(highCLowUrgency)).toBe(false);
+  });
+
+  it("accepts priorityOverrideReason satisfying the guardrail", () => {
+    const validate = compileSchemaFromFile("data/schemas/finding-schema.json");
+    const highCLowUrgency = {
+      ...valid,
+      criticality: { ...valid.criticality, index: 9 },
+      priority: { ...valid.priority, index: 3 },
+      priorityOverrideReason: "Exploitation requires an already-authenticated session; scheduled for next sprint.",
+    };
+    expect(validate(highCLowUrgency), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("does not require priorityOverrideReason when priority.index is below 2, even at high criticality", () => {
+    const validate = compileSchemaFromFile("data/schemas/finding-schema.json");
+    const highCHighUrgency = {
+      ...valid,
+      criticality: { ...valid.criticality, index: 9 },
+      priority: { ...valid.priority, index: 1 },
+    };
+    expect(validate(highCHighUrgency), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("does not require priorityOverrideReason when criticality.index is below 8, even at low urgency", () => {
+    const validate = compileSchemaFromFile("data/schemas/finding-schema.json");
+    const lowCLowUrgency = {
+      ...valid,
+      criticality: { ...valid.criticality, index: 5 },
+      priority: { ...valid.priority, index: 9 },
+    };
+    expect(validate(lowCLowUrgency), JSON.stringify(validate.errors)).toBe(true);
   });
 });
 

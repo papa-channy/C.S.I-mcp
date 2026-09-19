@@ -18,7 +18,31 @@
     "exploitability": { "type": "integer", "minimum": 1, "maximum": 5 },
     "exposure": { "type": "integer", "minimum": 1, "maximum": 3 },
     "privilegeRequired": { "type": "integer", "minimum": 0, "maximum": 2 },
-    "detectability": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "detectionDifficulty": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "criticality": {
+      "type": "object",
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 9 },
+        "formulaId": { "type": "string", "minLength": 1 },
+        "formulaVersion": { "type": "string", "minLength": 1 },
+        "computedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["index", "formulaId", "formulaVersion", "computedAt"],
+      "additionalProperties": false
+    },
+    "priority": {
+      "type": "object",
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 9 },
+        "source": { "type": "string", "enum": ["agent", "human"] },
+        "rationale": { "type": "string", "minLength": 1 },
+        "assignedBy": { "type": "string", "minLength": 1 },
+        "assignedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["index", "source", "rationale", "assignedBy", "assignedAt"],
+      "additionalProperties": false
+    },
+    "priorityOverrideReason": { "type": "string", "minLength": 1 },
     "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "informational"] },
     "evidenceIds": { "type": "array", "items": { "type": "string" } },
     "remediation": { "type": "string" },
@@ -30,8 +54,22 @@
   },
   "required": [
     "findingId", "title", "controlIds", "attackScenario", "impact",
-    "exploitability", "exposure", "privilegeRequired", "detectability",
-    "severity", "status"
+    "exploitability", "exposure", "privilegeRequired", "detectionDifficulty",
+    "criticality", "priority", "severity", "status"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "criticality": { "properties": { "index": { "minimum": 8 } }, "required": ["index"] },
+          "priority": { "properties": { "index": { "minimum": 2 } }, "required": ["index"] }
+        },
+        "required": ["criticality", "priority"]
+      },
+      "then": {
+        "required": ["priorityOverrideReason"]
+      }
+    }
+  ]
 }
