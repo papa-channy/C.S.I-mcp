@@ -18,7 +18,7 @@ describe("project-report-schema", () => {
         {
           domain: "authentication",
           score: 87,
-          totalControls: 20,
+          totalControls: 21,
           applicableControls: 16,
           assessedControls: 14,
           coveragePercent: 87.5,

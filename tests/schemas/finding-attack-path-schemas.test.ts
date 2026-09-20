@@ -14,7 +14,7 @@ describe("finding-schema", () => {
     privilegeRequired: 0,
     detectionDifficulty: 1,
     criticality: {
-      index: 9,
+      index: 8,
       formulaId: "CRIT-DEFAULT",
       formulaVersion: "1.0.0",
       computedAt: "2026-09-19T05:00:00Z",
