@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/assessment-run-schema.json",
+  "title": "AssessmentRun",
+  "type": "object",
+  "properties": {
+    "runId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "planId": { "type": "string", "minLength": 1 },
+    "planVersion": { "type": "integer", "minimum": 1 },
+    "profileRevision": { "type": "integer", "minimum": 1 },
+    "catalogVersion": { "type": "string", "minLength": 1 },
+    "batchIds": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string", "enum": ["pending", "running", "completed", "failed", "partial"] },
+    "startedAt": { "type": ["string", "null"], "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "required": ["runId", "projectId", "planId", "planVersion", "profileRevision", "catalogVersion", "batchIds", "status"],
+  "additionalProperties": false
+}
