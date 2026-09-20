@@ -1,0 +1,7 @@
+{
+  "modelId": "USSVS-SCORE-DEFAULT",
+  "version": "1.0.0",
+  "statusWeights": { "PASS": 1.0, "PARTIAL": 0.5, "FAIL": 0, "NOT_TESTED": 0 },
+  "excludedStatuses": ["N/A", "ACCEPTED_RISK"],
+  "description": "overallScore = 100 * sum(statusWeights[status] for each non-excluded applicable ControlAssessment) / count(non-excluded applicable ControlAssessments). coveragePercent = assessedControls / applicableControls * 100, where assessedControls counts everything except NOT_TESTED (N/A and ACCEPTED_RISK are excluded from applicableControls entirely, matching excludedStatuses)."
+}

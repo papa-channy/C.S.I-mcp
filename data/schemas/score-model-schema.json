@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/score-model-schema.json",
+  "title": "ScoreModel",
+  "type": "object",
+  "properties": {
+    "modelId": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "statusWeights": {
+      "type": "object",
+      "properties": {
+        "PASS": { "type": "number", "minimum": 0, "maximum": 1 },
+        "PARTIAL": { "type": "number", "minimum": 0, "maximum": 1 },
+        "FAIL": { "type": "number", "minimum": 0, "maximum": 1 },
+        "NOT_TESTED": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["PASS", "PARTIAL", "FAIL", "NOT_TESTED"],
+      "additionalProperties": false
+    },
+    "excludedStatuses": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["N/A", "ACCEPTED_RISK"] }
+    },
+    "description": { "type": "string", "minLength": 1 }
+  },
+  "required": ["modelId", "version", "statusWeights", "excludedStatuses", "description"],
+  "additionalProperties": false
+}
