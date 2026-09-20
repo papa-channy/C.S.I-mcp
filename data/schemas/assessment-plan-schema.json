@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/assessment-plan-schema.json",
+  "title": "AssessmentPlan",
+  "type": "object",
+  "properties": {
+    "planId": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "selection": {
+      "type": "object",
+      "properties": {
+        "applicability": { "type": "array", "items": { "type": "string", "enum": ["applicable", "not_applicable", "unknown"] } },
+        "assessmentStatuses": { "type": "array", "items": { "type": "string", "enum": ["PASS", "FAIL", "PARTIAL", "N/A", "NOT_TESTED", "ACCEPTED_RISK"] } },
+        "domains": { "type": "array", "items": { "type": "string" } },
+        "controlIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "groupBy": { "type": "string", "enum": ["domain", "subdomain", "layer", "group", "controlId"] },
+    "defaultMaxParallelAgents": { "type": "integer", "minimum": 1 },
+    "groupOverrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "groupValue": { "type": "string", "minLength": 1 },
+          "maxParallelAgents": { "type": "integer", "minimum": 1 },
+          "skip": { "type": "boolean" }
+        },
+        "required": ["groupValue"],
+        "additionalProperties": false
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "required": ["planId", "version", "projectId", "groupBy", "defaultMaxParallelAgents", "createdAt"],
+  "additionalProperties": false
+}
