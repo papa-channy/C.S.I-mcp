@@ -1,10 +1,10 @@
 {
   "catalog": "USSVS",
-  "catalogVersion": "2.0.0",
+  "catalogVersion": "2.1.0",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-09-16T00:00:00Z",
+  "generatedAt": "2026-09-19T00:00:00Z",
   "core": {
-    "files": ["core/principles.json", "core/security-levels.json", "core/profile-taxonomy.json", "core/criticality-weights.json"]
+    "files": ["core/principles.json", "core/security-levels.json", "core/profile-taxonomy.json", "core/criticality-weights.json", "core/scoring-model.json"]
   },
   "catalogs": {
     "files": ["catalogs/threats.json", "catalogs/references.json", "catalogs/evidence-types.json", "catalogs/owner-roles.json", "catalogs/asset-types.json"]
@@ -25,7 +25,14 @@
       "schemas/attack-path-schema.json",
       "schemas/risk-acceptance-schema.json",
       "schemas/release-evaluation-schema.json",
-      "schemas/criticality-formula-schema.json"
+      "schemas/project-schema.json",
+      "schemas/criticality-formula-schema.json",
+      "schemas/assessment-plan-schema.json",
+      "schemas/assessment-run-schema.json",
+      "schemas/assessment-batch-schema.json",
+      "schemas/score-model-schema.json",
+      "schemas/score-schema.json",
+      "schemas/project-report-schema.json"
     ]
   },
   "process": {

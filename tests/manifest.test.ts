@@ -29,7 +29,7 @@ describe("data/manifest.json", () => {
     }
   });
 
-  it("lists exactly the 11 schema files defined by the spec", () => {
+  it("lists exactly the 18 schema files defined by the spec", () => {
     const manifest = loadJson<Manifest>("data/manifest.json");
     expect(new Set(manifest.schemas.files)).toEqual(
       new Set([
@@ -43,7 +43,14 @@ describe("data/manifest.json", () => {
         "schemas/attack-path-schema.json",
         "schemas/risk-acceptance-schema.json",
         "schemas/release-evaluation-schema.json",
+        "schemas/project-schema.json",
         "schemas/criticality-formula-schema.json",
+        "schemas/assessment-plan-schema.json",
+        "schemas/assessment-run-schema.json",
+        "schemas/assessment-batch-schema.json",
+        "schemas/score-model-schema.json",
+        "schemas/score-schema.json",
+        "schemas/project-report-schema.json",
       ])
     );
   });
@@ -58,7 +65,7 @@ describe("data/manifest.json", () => {
     expect(manifest.controls.count).toBe(total);
   });
 
-  it("has no on-disk files in core/catalogs/controls/schemas/process missing from the manifest", () => {
+  it("has a file set on disk matching the manifest for each category directory", () => {
     const manifest = loadJson<Manifest>("data/manifest.json");
     const categories: { dir: string; prefix: string; files: string[] }[] = [
       { dir: "data/core", prefix: "core/", files: manifest.core.files },
@@ -67,12 +74,13 @@ describe("data/manifest.json", () => {
       { dir: "data/schemas", prefix: "schemas/", files: manifest.schemas.files },
       { dir: "data/process", prefix: "process/", files: manifest.process.files },
     ];
-
     for (const { dir, prefix, files } of categories) {
-      const onDisk = readdirSync(dir)
-        .filter((name) => name.endsWith(".json"))
-        .map((name) => `${prefix}${name}`);
-      expect(new Set(onDisk), `mismatch in ${dir}`).toEqual(new Set(files));
+      const onDisk = new Set(
+        readdirSync(dir)
+          .filter((f) => f.endsWith(".json"))
+          .map((f) => `${prefix}${f}`)
+      );
+      expect(onDisk, `mismatch in ${dir}`).toEqual(new Set(files));
     }
   });
 });
