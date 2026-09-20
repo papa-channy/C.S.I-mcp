@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csi-mcp.dev/schemas/assessment-batch-schema.json",
+  "title": "AssessmentBatch",
+  "type": "object",
+  "properties": {
+    "batchId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "planId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "groupBy": { "type": "string", "enum": ["domain", "subdomain", "layer", "group", "controlId"] },
+    "groupValue": { "type": "string", "minLength": 1 },
+    "controlIds": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "assignedAgent": { "type": ["string", "null"] },
+    "status": { "type": "string", "enum": ["pending", "running", "completed", "failed"] },
+    "startedAt": { "type": ["string", "null"], "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "resultingAssessmentIds": { "type": "array", "items": { "type": "string" } },
+    "resultingFindingIds": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["batchId", "runId", "planId", "projectId", "groupBy", "groupValue", "controlIds", "status", "resultingAssessmentIds", "resultingFindingIds"],
+  "additionalProperties": false
+}
