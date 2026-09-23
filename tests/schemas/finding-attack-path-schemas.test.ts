@@ -132,10 +132,13 @@ describe("attack-path-schema", () => {
 });
 
 describe("all 18 schemas compile under Ajv strict:true", () => {
-  it("finding-schema.json compiles under strict:true", () => {
+  it("every schema in the manifest compiles under strict:true", () => {
+    const manifest = loadJson<{ schemas: { files: string[] } }>("data/manifest.json");
     const ajv = new Ajv2020({ allErrors: true, strict: true });
     addFormats(ajv);
-    const schema = loadJson<object>("data/schemas/finding-schema.json");
-    expect(() => ajv.compile(schema)).not.toThrow();
+    for (const relativePath of manifest.schemas.files) {
+      const schema = loadJson<object>(`data/${relativePath}`);
+      expect(() => ajv.compile(schema), relativePath).not.toThrow();
+    }
   });
 });
