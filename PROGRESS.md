@@ -5,15 +5,22 @@ future MCP server that runs security reviews against real projects, scores
 them, and produces prioritized, reproducible reports. This document tracks
 what's built, how it's organized, and what's left.
 
-Last updated: 2026-09-21
+Last updated: 2026-09-23
 
 ## Status at a glance
 
 - **Phase 1 — Control catalog foundation:** done, merged.
 - **Phase 2 — Project/scoring/priority/workflow schemas:** done, merged.
-- **Test suite:** 107/107 passing, 22 files (`npm test`).
+- **Catalog integrity & pilot controls (semantic validator + 5 new control
+  domains):** done, merged — see
+  `docs/superpowers/specs/2026-09-22-catalog-integrity-and-pilot-design.md`
+  and `docs/superpowers/plans/2026-09-23-catalog-integrity-and-pilot.md`.
+- **Test suite:** 145/145 passing, 29 files (`npm test`).
 - **Server implementation (MCP tools, runtime formula computation, database):** not started.
-- **Control content beyond one proof-of-concept domain (12 controls):** not started.
+- **Control content:** 39 controls across 6 domain files (`identity-access`,
+  `appsec`, `infrastructure`, `operations`, `platform-specific`,
+  `data-crypto`). 2 of the original 8 planned domains remain unwritten:
+  `devops-supplychain`, `governance`.
 
 ## Architecture in one paragraph
 
@@ -39,8 +46,10 @@ data/
                               # criticality weights, scoring model (5 files)
   catalogs/                  # threats, references, evidence-types,
                               # owner-roles, asset-types (5 files)
-  controls/                  # identity-access.json — 12 controls
-                              # (IAM-AUTH-*, IAM-AUTHZ-*), proof-of-concept only
+  controls/                  # 6 files, 39 controls total: identity-access
+                              # (12), appsec (6), infrastructure (6),
+                              # operations (5), platform-specific (5),
+                              # data-crypto (5)
   schemas/                   # 18 JSON Schema (draft 2020-12) documents —
                               # see "Schemas" table below
   process/                   # verification flow, release gates, incident
@@ -82,7 +91,14 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
   `Threat` (catalog) vs. `Finding` (project-specific).
 - **Applicability is three-valued** (`applicable | not_applicable | unknown`)
   via a declarative rule DSL on each Control — missing profile data must
-  never silently read as "not applicable."
+  never silently read as "not applicable." **Hard rule for whoever builds
+  the Applicability Engine:** whatever evaluates `ProjectProfile`'s
+  `components`/`identities`/`dataClasses` fields against a Control's
+  `applicability` rule DSL must never normalize those fields with `?? []`
+  or an equivalent default — an omitted (not-yet-profiled) field and an
+  intentionally-empty one are different states, and normalizing with `?? []`
+  collapses the three-valued UNKNOWN into NO. This is written down here and
+  in the design spec; it is not optional guidance.
 - **Priority vs. Criticality are deliberately different kinds of value.**
   `criticality` is a *computed* object (`index`, `formulaId`, `formulaVersion`,
   `computedAt`) — an agent supplies the 5 underlying severity factors, never
@@ -118,77 +134,66 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
 
 ```bash
 npm install
-npm test        # expect: 22 files, 107 tests, all passing
+npm test        # expect: 29 files, 145 tests, all passing
 ```
 
 `data/manifest.json` is the single source of truth for what's registered —
-`controls.count` (12), `schemas.files` (18 entries), `core.files` (5
+`controls.count` (39), `schemas.files` (18 entries), `core.files` (5
 entries) are all test-enforced against what's actually on disk
 (`tests/manifest.test.ts`).
 
 ## Known gaps / deferred items (from the Phase 2 final review, all parked deliberately — none blocking)
 
-1. `finding-schema.json` is the only one of 18 schemas that doesn't compile
-   under Ajv `strict: true` (a cosmetic guardrail-subschema issue; runtime
-   validation already uses `strict: false` throughout and is unaffected).
-2. No automated drift-guard between the 4 places a shape is duplicated by
-   hand: `Project.profile` vs. `ProjectProfile`, `ProjectReport.score` vs.
-   `Score`, `ProjectReport.releaseEvaluation` vs. `ReleaseEvaluation`, and
-   `AssessmentPlan.groupBy` vs. `AssessmentBatch.groupBy`. All four are
-   verified identical today; nothing stops future drift.
-3. The `prioritizedFindings` sort-invariant test is self-referential (it
+Two gaps flagged in the Phase 2 final review are now **resolved** by the
+catalog-integrity-and-pilot branch: `finding-schema.json` now compiles
+under Ajv `strict: true` like the other 17 schemas (`tests/schemas/
+finding-attack-path-schemas.test.ts`), and drift-guard tests for the 4
+hand-duplicated shapes now exist (`tests/schema-drift.test.ts`, 4 tests).
+
+Remaining gaps:
+
+1. The `prioritizedFindings` sort-invariant test is self-referential (it
    sorts a fixture and compares it to itself) since no real sorting code
    exists yet — fine for a schema-only phase, should become a real
    comparator test once a server exists.
-4. Referential integrity between denormalized fields (e.g. a Batch's
+2. Referential integrity between denormalized fields (e.g. a Batch's
    `planId` should always equal its Run's `planId`) isn't schema-enforceable
    and isn't yet written down as a process rule anywhere.
-5. Two EvidenceType/OwnerRole-style small enums are still hand-duplicated
+3. Two EvidenceType/OwnerRole-style small enums are still hand-duplicated
    across `catalogs/*.json` and their governing schema, guarded by a test
    from Phase 1 (`tests/catalogs/catalogs.test.ts`) — the Phase 2 duplicates
-   in item 2 above don't have the equivalent guard yet.
+   handled by the drift-guard tests above are a separate set of shapes.
 
 ## Next steps, in a reasonable order
 
-### 1. Close the Phase 2 gaps (small, cheap, no design work needed)
-Add the drift-guard tests from gap #2, and optionally fix the `strict:true`
-issue from gap #1 (both were scoped out of Phase 2 as Minor/non-blocking —
-see the Phase 2 spec's adoption log and the final-review ledger for exact
-reasoning). Good first task for a short follow-up plan.
-
-### 2. Populate the remaining control content (Phase 1's own disclosed follow-up)
-Only 1 of 8 planned domain files exists (`identity-access.json`, and even
-that only covers its Authentication/Authorization subdomains — Session/
-Token, OAuth/SSO, Privileged Access, and Identity Lifecycle are still
-unwritten within that same file). The other 7 domain files — `appsec`,
-`data-crypto`, `infrastructure`, `platform-specific`, `devops-supplychain`,
-`operations`, `governance` — are fully specified in the original USSVS
-source material but not yet authored as JSON. This is independent of
-everything else and can proceed in parallel with the MCP server work
-below. Follow the exact pattern `identity-access.json` established
-(flat array of Control objects, `applicability` rules preferring
-Capability/Architecture over raw tech stack, `threatIds` referencing
-`catalogs/threats.json`, validated against `control-schema.json`).
-
-### 3. Resolve two open design questions before scaling control content further
-Both are flagged in the Phase 1 spec's adoption log as deliberately
-deferred, and get more expensive to fix the more content is built on top
-of them:
-- **`assurance` (per-SVL verification depth) vs. `verification.methods`
-  are currently decoupled** — a Control can promise an assurance activity
-  at some SVL with no matching verification method actually defined. Needs
-  a design decision (controlled vocabulary, a cross-check test, or
-  redefining what `assurance` means) before it's replicated across ~250
-  more controls.
+Two items previously listed here are now **done**: closing the Phase 2 gaps
+(see "Known gaps" above), and both open design questions that were
+previously flagged as blocking further control-content scaling:
+- **`assurance` vs. `verification.methods` linkage** is now enforced by the
+  semantic catalog validator (`src/validate-catalog.ts`) — it checks that
+  every `assurance.<SVL>` entry references a defined `verification.methods`
+  type, and that assurance is cumulative across SVL levels actually present
+  on a control.
 - **`ProjectProfile`'s array fields (`components`/`identities`/
-  `dataClasses`) are `required` with no `minItems`** — an empty array
-  (intended to mean "not yet profiled") could be misread by a future
-  Applicability Engine as a definite "no," which violates the project's
-  own three-valued-unknown principle through required-ness rather than
-  omission. No live bug today (no engine exists yet), but should be
-  resolved before one is built.
+  `dataClasses`) are no longer always-required** — they are now
+  three-valued (omitted = not yet profiled / unknown, empty array =
+  profiled and confirmed absent, populated = profiled and present), so an
+  empty array can no longer be misread as "not applicable."
 
-### 4. Design and build the MCP server itself
+### 1. Populate the remaining control content (Phase 1's own disclosed follow-up)
+6 of 8 planned domain files now exist: `identity-access` (12 controls),
+`appsec` (6), `infrastructure` (6), `operations` (5), `platform-specific`
+(5), `data-crypto` (5) — 39 controls total. 2 domains remain unwritten:
+`devops-supplychain` and `governance`. These are fully specified in the
+original USSVS source material but not yet authored as JSON. This is
+independent of everything else and can proceed in parallel with the MCP
+server work below. Follow the exact pattern the existing domain files
+established (flat array of Control objects, `applicability` rules
+preferring Capability/Architecture over raw tech stack, `threatIds`
+referencing `catalogs/threats.json`, validated against
+`control-schema.json` and `src/validate-catalog.ts`).
+
+### 2. Design and build the MCP server itself
 Nothing in `data/` is executable yet — every formula, applicability rule,
 and scoring model is documented data, not code. The server phase needs to:
 implement the Applicability Engine (evaluates a `ProjectProfile` against
@@ -200,7 +205,7 @@ documented in `data/core/criticality-weights.json` and
 depends on nothing above being finished first — it can start once the
 core schemas (already done) are considered stable.
 
-### 5. Plan the SQLite migration (explicitly deferred since Phase 1)
+### 3. Plan the SQLite migration (explicitly deferred since Phase 1)
 Both phases were written so this stays cheap: every entity is a flat
 record with small nested value-objects, no Control-in-Control nesting,
 and IDs that read naturally as foreign keys. Not urgent — revisit once
