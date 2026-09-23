@@ -1,0 +1,189 @@
+[
+  {
+    "controlId": "DATA-ENC-001",
+    "version": 1,
+    "status": "active",
+    "title": "Encryption at Rest for Restricted Data",
+    "group": "data_crypto",
+    "domain": "data_crypto",
+    "subdomain": "encryption_at_rest",
+    "layer": "prevent",
+    "requirement": "Data classified D3 must be encrypted at rest using a strong, current algorithm.",
+    "rationale": "Restricted data stored in plaintext is directly exposed by any compromise of the underlying storage, backup, or physical medium.",
+    "threatIds": ["THR-DATA-UNENCRYPTED-AT-REST"],
+    "applicability": {
+      "when": { "all": [{ "fact": "dataClasses", "operator": "contains", "value": "D3" }] }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect storage configuration for every field or store holding D3 data and confirm encryption at rest is enabled using a current, strong algorithm.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["Every store holding D3 data is encrypted at rest with a current, strong algorithm."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["infrastructure", "security"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["data_crypto", "encryption"]
+  },
+  {
+    "controlId": "DATA-ENC-002",
+    "version": 1,
+    "status": "active",
+    "title": "Encryption in Transit for Internet-Facing Traffic",
+    "group": "data_crypto",
+    "domain": "data_crypto",
+    "subdomain": "encryption_in_transit",
+    "layer": "prevent",
+    "requirement": "All traffic to and from an internet-facing service must use transport encryption (TLS), with plaintext connections rejected or redirected.",
+    "rationale": "Traffic sent over the public internet without transport encryption can be read or modified by any on-path attacker.",
+    "threatIds": ["THR-DATA-UNENCRYPTED-IN-TRANSIT"],
+    "applicability": {
+      "when": { "all": [{ "fact": "exposure", "operator": "contains", "value": "internet_public" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "scan"], "SVL-3": ["config_review", "scan"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the load balancer or edge configuration and confirm plaintext HTTP connections are redirected or rejected, and a current TLS version is enforced.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "scan",
+          "procedure": "Run a TLS configuration scan against the public endpoint and confirm no deprecated protocol version or weak cipher suite is accepted.",
+          "requiredEvidenceTypes": ["SCAN"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["A plaintext connection attempt is rejected or redirected, and the TLS scan reports no deprecated protocol version or weak cipher suite."],
+    "evidenceRequirements": [{ "type": "SCAN", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["infrastructure", "devops"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["data_crypto", "encryption", "tls"]
+  },
+  {
+    "controlId": "DATA-KEYSEP-001",
+    "version": 1,
+    "status": "active",
+    "title": "Encryption Key Separation from Encrypted Data",
+    "group": "data_crypto",
+    "domain": "data_crypto",
+    "subdomain": "key_management",
+    "layer": "prevent",
+    "requirement": "The key used to encrypt data required by DATA-ENC-001 must be managed by a separate service (e.g. a dedicated key management service or HSM), not stored in the same database or file store as the data it protects.",
+    "rationale": "If the encryption key is reachable through the same compromise that exposes the encrypted data, encryption at rest provides no real protection.",
+    "threatIds": ["THR-DATA-KEY-COLOCATION"],
+    "applicability": {
+      "when": { "all": [{ "fact": "dataClasses", "operator": "contains", "value": "D3" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm encryption keys for D3 data are managed by a dedicated key management service or HSM, and that no encryption key is stored alongside the data it encrypts.",
+          "requiredEvidenceTypes": ["CONFIG", "ARCHITECTURE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No encryption key for D3 data is reachable through the same access path as the data it protects."],
+    "evidenceRequirements": [{ "type": "ARCHITECTURE", "required": true }],
+    "ownerRoles": ["infrastructure", "security"],
+    "references": [],
+    "relationships": { "dependsOn": ["DATA-ENC-001"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["data_crypto", "key_management"]
+  },
+  {
+    "controlId": "DATA-RETENTION-001",
+    "version": 1,
+    "status": "active",
+    "title": "Data Retention and Deletion Limits",
+    "group": "data_crypto",
+    "domain": "data_crypto",
+    "subdomain": "data_retention",
+    "layer": "contain_recover",
+    "requirement": "Confidential or restricted data must have a defined retention period, after which it is deleted or irreversibly anonymized.",
+    "rationale": "Data kept beyond its useful purpose has no benefit but adds to the exposure of any future breach.",
+    "threatIds": ["THR-DATA-EXCESSIVE-RETENTION"],
+    "applicability": {
+      "when": { "all": [{ "fact": "dataClasses", "operator": "intersects", "value": ["D2", "D3"] }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm a defined retention period exists for each store of confidential or restricted data, and that a deletion or anonymization job enforces it.",
+          "requiredEvidenceTypes": ["CONFIG", "REPORT"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["Confidential or restricted data past its defined retention period has been deleted or irreversibly anonymized."],
+    "evidenceRequirements": [{ "type": "REPORT", "required": true }],
+    "ownerRoles": ["privacy", "operations"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["data_crypto", "retention", "privacy"]
+  },
+  {
+    "controlId": "DATA-MASK-001",
+    "version": 1,
+    "status": "active",
+    "title": "Sensitive Data Masking in Non-Production Environments",
+    "group": "data_crypto",
+    "domain": "data_crypto",
+    "subdomain": "data_masking",
+    "layer": "prevent",
+    "requirement": "Confidential or restricted data copied into a development or test database must be masked or synthetic, not a raw copy of production values.",
+    "rationale": "Non-production environments are typically held to a lower security bar than production, so a raw copy of production data there is exposed to a wider set of people and weaker controls.",
+    "threatIds": ["THR-DATA-NONPROD-EXPOSURE"],
+    "applicability": {
+      "when": {
+        "all": [
+          { "fact": "dataClasses", "operator": "intersects", "value": ["D2", "D3"] },
+          { "fact": "components", "operator": "contains", "value": "database" }
+        ]
+      }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the process used to populate development or test databases and confirm confidential or restricted fields are masked, synthetic, or excluded rather than copied from production as-is.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No development or test database contains an unmasked copy of a confidential or restricted production value."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["privacy", "devops"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["data_crypto", "masking"]
+  }
+]
