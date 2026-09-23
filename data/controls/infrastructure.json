@@ -1,0 +1,236 @@
+[
+  {
+    "controlId": "INFRA-EXPOSURE-001",
+    "version": 1,
+    "status": "active",
+    "title": "Internet-Facing Service Hardening Baseline",
+    "group": "infrastructure",
+    "domain": "infrastructure",
+    "subdomain": "network_exposure",
+    "layer": "prevent",
+    "requirement": "Any service reachable from the public internet must expose only the ports and endpoints required for its function, with all other management or debug interfaces bound to a private network.",
+    "rationale": "A service that exposes management or debug interfaces to the public internet gives an attacker a direct path to functionality never meant to be reachable externally.",
+    "threatIds": ["THR-INFRA-EXCESS-EXPOSURE"],
+    "applicability": {
+      "when": { "all": [{ "fact": "exposure", "operator": "contains", "value": "internet_public" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "scan"], "SVL-3": ["config_review", "scan", "adversarial_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the security group, firewall, or ingress configuration and confirm only required ports are reachable from the public internet.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "scan",
+          "procedure": "Run an external port scan against the service's public address and confirm only the expected ports respond.",
+          "requiredEvidenceTypes": ["SCAN"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt to reach management or debug endpoints (e.g. metrics, admin consoles, orchestration APIs) directly from the public internet.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No management, debug, or internal-only endpoint is reachable from the public internet."],
+    "evidenceRequirements": [
+      { "type": "CONFIG", "required": true },
+      { "type": "SCAN", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }
+    ],
+    "ownerRoles": ["infrastructure", "devops"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["infrastructure", "network"]
+  },
+  {
+    "controlId": "INFRA-LEASTPRIV-001",
+    "version": 1,
+    "status": "active",
+    "title": "Least-Privilege Cloud IAM Roles",
+    "group": "infrastructure",
+    "domain": "infrastructure",
+    "subdomain": "cloud_iam",
+    "layer": "prevent",
+    "requirement": "A workload's cloud IAM role must grant only the permissions that workload requires, not broad or wildcard permissions.",
+    "rationale": "A workload holding broad cloud permissions turns any single compromise of that workload into a compromise of everything its role can reach.",
+    "threatIds": ["THR-INFRA-OVERPRIVILEGED-IAM"],
+    "applicability": {
+      "when": { "all": [{ "fact": "technologies.cloud", "operator": "intersects", "value": ["aws", "gcp", "azure"] }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Review each workload's IAM policy and confirm it lists specific actions and resources rather than wildcard actions or resources.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No workload IAM role grants a wildcard action or resource it does not require."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["infrastructure", "devops"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["infrastructure", "iam"]
+  },
+  {
+    "controlId": "INFRA-PATCH-001",
+    "version": 1,
+    "status": "active",
+    "title": "Dependency and OS Patch Currency",
+    "group": "infrastructure",
+    "domain": "infrastructure",
+    "subdomain": "patch_management",
+    "layer": "prevent",
+    "requirement": "Operating system packages and application dependencies must be tracked for known vulnerabilities and updated within a defined window of a fix becoming available.",
+    "rationale": "A component with a publicly known vulnerability is a target attackers can identify and exploit without any custom research.",
+    "threatIds": ["THR-INFRA-UNPATCHED-DEPENDENCY"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "intersects", "value": ["backend_api", "database", "file_storage"] }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "scan"], "SVL-3": ["config_review", "scan"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm a dependency and OS package scanning tool runs on a defined schedule and its findings are tracked to remediation.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "scan",
+          "procedure": "Run a dependency and OS package vulnerability scan and confirm no known-vulnerable component is past its remediation window.",
+          "requiredEvidenceTypes": ["SCAN"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["No dependency or OS package with a known vulnerability is past the defined remediation window."],
+    "evidenceRequirements": [{ "type": "SCAN", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["infrastructure", "devops"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["infrastructure", "patching"]
+  },
+  {
+    "controlId": "INFRA-PATCH-002",
+    "version": 1,
+    "status": "active",
+    "title": "Emergency Patch SLA for Critical Vulnerabilities",
+    "group": "infrastructure",
+    "domain": "infrastructure",
+    "subdomain": "patch_management",
+    "layer": "contain_recover",
+    "requirement": "A dependency or OS vulnerability rated critical must be remediated faster than the standard patch window defined by INFRA-PATCH-001.",
+    "rationale": "A critical vulnerability under active exploitation elsewhere does not wait for a routine patch cycle; the response time must scale with severity.",
+    "threatIds": ["THR-INFRA-UNPATCHED-DEPENDENCY"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "intersects", "value": ["backend_api", "database", "file_storage"] }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm a documented emergency patch SLA exists for critical-severity findings and review the most recent critical finding against it.",
+          "requiredEvidenceTypes": ["TICKET", "REPORT"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["A critical-severity dependency or OS vulnerability is remediated within the emergency SLA, shorter than the standard patch window."],
+    "evidenceRequirements": [{ "type": "TICKET", "required": true }],
+    "ownerRoles": ["infrastructure", "devops", "security"],
+    "references": [],
+    "relationships": { "dependsOn": ["INFRA-PATCH-001"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["infrastructure", "patching", "incident_response"]
+  },
+  {
+    "controlId": "INFRA-NETSEG-001",
+    "version": 1,
+    "status": "active",
+    "title": "Database Network Segmentation",
+    "group": "infrastructure",
+    "domain": "infrastructure",
+    "subdomain": "network_segmentation",
+    "layer": "prevent",
+    "requirement": "At SVL-3, a database must be reachable only from the specific application hosts that require it, not from the broader internal network.",
+    "rationale": "At higher assurance levels, a flat internal network is treated as already compromised in part; segmentation limits how far an attacker who reaches one host can move.",
+    "threatIds": ["THR-INFRA-LATERAL-MOVEMENT"],
+    "applicability": {
+      "when": { "all": [{ "fact": "securityLevel", "operator": "eq", "value": "SVL-3" }, { "fact": "components", "operator": "contains", "value": "database" }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect network ACLs or security groups for the database and confirm only the application hosts that require access are permitted, not the full internal network range.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["The database is unreachable from any internal host other than the application hosts that require it."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["infrastructure"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["infrastructure", "network", "segmentation"]
+  },
+  {
+    "controlId": "INFRA-BACKUP-001",
+    "version": 1,
+    "status": "active",
+    "title": "Encrypted, Scheduled Backups",
+    "group": "infrastructure",
+    "domain": "infrastructure",
+    "subdomain": "backup",
+    "layer": "contain_recover",
+    "requirement": "A database must be backed up on a defined schedule, and backups must be encrypted at rest.",
+    "rationale": "Without a scheduled, encrypted backup, a destructive incident (ransomware, accidental deletion, storage failure) can cause permanent data loss.",
+    "threatIds": ["THR-INFRA-BACKUP-LOSS"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "contains", "value": "database" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the backup schedule and storage configuration and confirm backups run on the defined interval and are encrypted at rest.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["A backup completed within the defined schedule interval exists and is encrypted at rest."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["infrastructure", "devops"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["infrastructure", "backup"]
+  }
+]
