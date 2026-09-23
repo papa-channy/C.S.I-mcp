@@ -62,12 +62,21 @@
     {
       "if": {
         "properties": {
-          "criticality": { "properties": { "index": { "minimum": 8 } }, "required": ["index"] },
-          "priority": { "properties": { "index": { "minimum": 2 } }, "required": ["index"] }
+          "criticality": {
+            "type": "object",
+            "properties": { "index": { "type": "integer", "minimum": 8 } },
+            "required": ["index"]
+          },
+          "priority": {
+            "type": "object",
+            "properties": { "index": { "type": "integer", "minimum": 2 } },
+            "required": ["index"]
+          }
         },
         "required": ["criticality", "priority"]
       },
       "then": {
+        "properties": { "priorityOverrideReason": { "type": "string" } },
         "required": ["priorityOverrideReason"]
       }
     }

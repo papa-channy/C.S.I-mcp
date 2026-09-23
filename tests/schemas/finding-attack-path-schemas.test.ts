@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { compileSchemaFromFile } from "../../src/validate.js";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
+import { loadJson } from "../../src/validate.js";
 
 describe("finding-schema", () => {
   const valid = {
@@ -125,5 +128,14 @@ describe("attack-path-schema", () => {
   it("rejects an invalid result value", () => {
     const validate = compileSchemaFromFile("data/schemas/attack-path-schema.json");
     expect(validate({ ...valid, result: "maybe" })).toBe(false);
+  });
+});
+
+describe("all 18 schemas compile under Ajv strict:true", () => {
+  it("finding-schema.json compiles under strict:true", () => {
+    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    addFormats(ajv);
+    const schema = loadJson<object>("data/schemas/finding-schema.json");
+    expect(() => ajv.compile(schema)).not.toThrow();
   });
 });
