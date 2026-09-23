@@ -12,6 +12,11 @@
     { "threatId": "THR-IAM-IDOR", "title": "Insecure Direct Object Reference", "description": "An attacker accesses another user's object by manipulating an identifier, without an accompanying ownership check.", "category": "authorization" },
     { "threatId": "THR-IAM-PRIVILEGE-ESCALATION", "title": "Privilege Escalation", "description": "A low-privilege identity gains access to functionality or data reserved for a higher-privilege role.", "category": "authorization" },
     { "threatId": "THR-IAM-MASS-ASSIGNMENT", "title": "Mass Assignment", "description": "An attacker sets a privileged field (e.g. role, isAdmin) by including it in a request body the server binds without filtering.", "category": "authorization" },
-    { "threatId": "THR-INJ-001", "title": "SQL Injection", "description": "External input changes the structure of a SQL query executed by the application.", "category": "injection" }
+    { "threatId": "THR-INJ-001", "title": "SQL Injection", "description": "External input changes the structure of a SQL query executed by the application.", "category": "injection" },
+    { "threatId": "THR-APP-XSS", "title": "Cross-Site Scripting", "description": "An attacker injects script into a page viewed by other users because user-controlled content is rendered without proper output encoding.", "category": "appsec" },
+    { "threatId": "THR-APP-UNRESTRICTED-UPLOAD", "title": "Unrestricted File Upload", "description": "An attacker uploads a file of an unexpected type or size that is later executed, served, or used to exhaust storage.", "category": "appsec" },
+    { "threatId": "THR-APP-SSRF", "title": "Server-Side Request Forgery", "description": "An attacker causes the server to make an outbound request to an internal or unintended destination on the attacker's behalf.", "category": "appsec" },
+    { "threatId": "THR-INJ-NOSQL", "title": "NoSQL Injection", "description": "External input changes the structure or semantics of a query executed against a non-relational data store.", "category": "injection" },
+    { "threatId": "THR-APP-INSECURE-DESERIALIZATION", "title": "Insecure Deserialization", "description": "Untrusted serialized data is deserialized into objects without validation, allowing an attacker to influence application state or achieve code execution.", "category": "appsec" }
   ]
 }

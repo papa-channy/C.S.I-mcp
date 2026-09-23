@@ -1,0 +1,257 @@
+[
+  {
+    "controlId": "APP-XSS-001",
+    "version": 1,
+    "status": "active",
+    "title": "Output Encoding for User-Controlled Content",
+    "group": "appsec",
+    "domain": "appsec",
+    "subdomain": "output_encoding",
+    "layer": "prevent",
+    "requirement": "User-controlled content rendered in a browser context must be output-encoded for that context.",
+    "rationale": "Rendering user-controlled content without context-appropriate encoding lets an attacker inject script that executes in another user's browser session.",
+    "threatIds": ["THR-APP-XSS"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "contains", "value": "browser_frontend" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["code_review"], "SVL-2": ["code_review"], "SVL-3": ["code_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "code_review",
+          "procedure": "Review templates and rendering code and confirm user-controlled values pass through a context-aware encoder (HTML, attribute, URL, or JS, as appropriate) before rendering.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["User-controlled content cannot execute as script when rendered in a browser context."],
+    "evidenceRequirements": [{ "type": "CODE", "required": true }],
+    "ownerRoles": ["application", "frontend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["appsec", "xss"]
+  },
+  {
+    "controlId": "APP-UPLOAD-001",
+    "version": 1,
+    "status": "active",
+    "title": "Uploaded File Type and Size Restriction",
+    "group": "appsec",
+    "domain": "appsec",
+    "subdomain": "file_upload",
+    "layer": "prevent",
+    "requirement": "File uploads must be restricted to an allow-list of file types and a maximum size, validated by content rather than by filename or client-supplied MIME type alone.",
+    "rationale": "Accepting arbitrary file types or sizes lets an attacker upload an executable payload or exhaust storage capacity.",
+    "threatIds": ["THR-APP-UNRESTRICTED-UPLOAD"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.fileUpload", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "dynamic_test"], "SVL-3": ["config_review", "dynamic_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the upload handler configuration and confirm an allow-list of file types and a maximum size are enforced.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "dynamic_test",
+          "procedure": "Attempt to upload a disallowed file type with a spoofed extension and MIME type, and a file exceeding the size limit, and confirm both are rejected.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": [
+      "An upload outside the allowed file types is rejected regardless of its claimed extension or MIME type.",
+      "An upload exceeding the configured size limit is rejected."
+    ],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["appsec", "file_upload"]
+  },
+  {
+    "controlId": "APP-SSRF-001",
+    "version": 1,
+    "status": "active",
+    "title": "Outbound Webhook Request Allow-listing",
+    "group": "appsec",
+    "domain": "appsec",
+    "subdomain": "outbound_requests",
+    "layer": "prevent",
+    "requirement": "Server-initiated outbound requests to a user-supplied URL (e.g. a webhook target) must be restricted to an allow-listed set of destinations and must not reach internal network ranges.",
+    "rationale": "A server that fetches a user-supplied URL without restriction can be made to reach internal-only services or metadata endpoints on the attacker's behalf.",
+    "threatIds": ["THR-APP-SSRF"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.webhook", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "dynamic_test"], "SVL-3": ["config_review", "dynamic_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the outbound HTTP client configuration used for webhook delivery and confirm requests to private/internal IP ranges and the cloud metadata address are blocked.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "dynamic_test",
+          "procedure": "Register a webhook target pointing at an internal address and the cloud metadata endpoint, and confirm the request is blocked before it leaves the server.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["A webhook or outbound-fetch target resolving to an internal address or the cloud metadata endpoint is rejected before the request is sent."],
+    "evidenceRequirements": [{ "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend", "infrastructure"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["appsec", "ssrf"]
+  },
+  {
+    "controlId": "APP-INJ-001",
+    "version": 1,
+    "status": "active",
+    "title": "Parameterized Query Execution",
+    "group": "appsec",
+    "domain": "appsec",
+    "subdomain": "query_construction",
+    "layer": "prevent",
+    "requirement": "Database queries must be constructed with parameterized statements or an equivalent safe query builder, never by concatenating untrusted input into a query string.",
+    "rationale": "Concatenating untrusted input into a query string lets an attacker change the query's structure and read, modify, or destroy data outside their authorization.",
+    "threatIds": ["THR-INJ-001", "THR-INJ-NOSQL"],
+    "applicability": {
+      "when": {
+        "any": [
+          { "fact": "technologies.databases", "operator": "contains", "value": "postgresql" },
+          { "fact": "technologies.databases", "operator": "contains", "value": "mysql" },
+          { "fact": "technologies.databases", "operator": "contains", "value": "mongodb" }
+        ]
+      }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": { "SVL-1": ["code_review"], "SVL-2": ["code_review", "dynamic_test"], "SVL-3": ["code_review", "dynamic_test", "adversarial_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "code_review",
+          "procedure": "Review every database call site and confirm untrusted input is always passed as a bound parameter, never concatenated into the query string or command.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "dynamic_test",
+          "procedure": "Submit standard injection probe strings into every input that reaches a database query and confirm none alter query structure or return unauthorized data.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt blind and time-based injection techniques against inputs that do not directly reflect query results, to catch injection paths automated scanning misses.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No injection probe changes query structure, returns unauthorized data, or produces a database error revealing query structure."],
+    "evidenceRequirements": [
+      { "type": "CODE", "required": true },
+      { "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }
+    ],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["appsec", "injection"]
+  },
+  {
+    "controlId": "APP-ADMIN-001",
+    "version": 1,
+    "status": "active",
+    "title": "Admin Interface Restricted to Privileged Identities",
+    "group": "appsec",
+    "domain": "appsec",
+    "subdomain": "admin_interface",
+    "layer": "prevent",
+    "requirement": "An administrative interface must be reachable only by identities holding an administrator role, in addition to any other authorization checks.",
+    "rationale": "An admin interface that is reachable by non-administrator identities, even if individual actions are separately checked, widens the attack surface an attacker can probe.",
+    "threatIds": ["THR-IAM-PRIVILEGE-ESCALATION"],
+    "applicability": {
+      "when": {
+        "all": [
+          { "fact": "features.adminInterface", "operator": "eq", "value": true },
+          { "fact": "identities", "operator": "contains", "value": "administrator" }
+        ]
+      }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the routing or gateway configuration for the admin interface and confirm every route under it requires an administrator role, independent of individual endpoint logic.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["Every route under the administrative interface rejects a non-administrator identity before reaching endpoint logic."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["application", "security"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": ["IAM-AUTHZ-003"], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["appsec", "admin"]
+  },
+  {
+    "controlId": "APP-DESER-001",
+    "version": 1,
+    "status": "active",
+    "title": "Safe Deserialization of Untrusted Input",
+    "group": "appsec",
+    "domain": "appsec",
+    "subdomain": "deserialization",
+    "layer": "prevent",
+    "requirement": "Untrusted input must not be deserialized using a format or library capable of instantiating arbitrary types or invoking code during deserialization.",
+    "rationale": "A deserializer that can instantiate arbitrary types from untrusted input gives an attacker a path to remote code execution without needing a separate memory-corruption bug.",
+    "threatIds": ["THR-APP-INSECURE-DESERIALIZATION"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "contains", "value": "backend_api" }] }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": { "SVL-1": ["code_review"], "SVL-2": ["code_review"], "SVL-3": ["code_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "code_review",
+          "procedure": "Review every place untrusted input is deserialized and confirm a safe, schema-constrained format is used, or that a general-purpose deserializer is configured to reject arbitrary type instantiation.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["Deserializing untrusted input cannot instantiate a type outside an explicit allow-list."],
+    "evidenceRequirements": [{ "type": "CODE", "required": true }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["appsec", "deserialization"]
+  }
+]
