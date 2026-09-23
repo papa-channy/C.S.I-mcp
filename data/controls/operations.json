@@ -1,0 +1,191 @@
+[
+  {
+    "controlId": "OPS-LOG-001",
+    "version": 1,
+    "status": "active",
+    "title": "Security-Relevant Event Logging",
+    "group": "operations",
+    "domain": "operations",
+    "subdomain": "logging",
+    "layer": "detect",
+    "requirement": "Authentication, authorization failures, and privileged actions must produce a log record including actor, action, target, and timestamp.",
+    "rationale": "Without a record of who did what and when, detecting and investigating a security incident after the fact is not possible.",
+    "threatIds": ["THR-OPS-INSUFFICIENT-LOGGING"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "contains", "value": "backend_api" }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "dynamic_test"], "SVL-3": ["config_review", "dynamic_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the logging configuration and confirm authentication events, authorization failures, and privileged actions are configured to produce log records.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "dynamic_test",
+          "procedure": "Trigger a login, a login failure, an authorization failure, and a privileged action, and confirm each produces a log record with actor, action, target, and timestamp.",
+          "requiredEvidenceTypes": ["LOG"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["Each of a login, a login failure, an authorization failure, and a privileged action produces a log record identifying actor, action, target, and timestamp."],
+    "evidenceRequirements": [{ "type": "LOG", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "backend", "operations"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["operations", "logging"]
+  },
+  {
+    "controlId": "OPS-LOG-002",
+    "version": 1,
+    "status": "active",
+    "title": "Centralized, Tamper-resistant Log Retention",
+    "group": "operations",
+    "domain": "operations",
+    "subdomain": "logging",
+    "layer": "detect",
+    "requirement": "Security-relevant logs produced by OPS-LOG-001 must be shipped to a centralized store the originating host cannot modify or delete, and retained for a defined minimum period.",
+    "rationale": "A log that only exists on the host that produced it can be altered or deleted by an attacker who compromises that host, defeating its purpose.",
+    "threatIds": ["THR-OPS-LOG-TAMPERING"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "contains", "value": "backend_api" }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm logs are shipped to a centralized store that the originating host has no delete or modify permission on, and confirm the configured retention period.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["A host that produces a security-relevant log cannot modify or delete that log once it reaches the centralized store."],
+    "evidenceRequirements": [{ "type": "CONFIG", "required": true }],
+    "ownerRoles": ["operations", "infrastructure"],
+    "references": [],
+    "relationships": { "dependsOn": ["OPS-LOG-001"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["operations", "logging"]
+  },
+  {
+    "controlId": "OPS-IR-001",
+    "version": 1,
+    "status": "active",
+    "title": "Incident Response Runbook Verification",
+    "group": "operations",
+    "domain": "operations",
+    "subdomain": "incident_response",
+    "layer": "contain_recover",
+    "requirement": "At SVL-2 and above, a documented incident response runbook must exist and have been exercised through at least a tabletop exercise within the last 12 months.",
+    "rationale": "An incident response plan that has never been exercised routinely fails on first real use, in ways a tabletop exercise would have surfaced cheaply.",
+    "threatIds": ["THR-OPS-UNVERIFIED-IR-PLAN"],
+    "applicability": {
+      "when": { "all": [{ "fact": "securityLevel", "operator": "in", "value": ["SVL-2", "SVL-3"] }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-2": ["manual_review"], "SVL-3": ["manual_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "manual_review",
+          "procedure": "Review the incident response runbook and confirm a tabletop or live exercise record exists dated within the last 12 months.",
+          "requiredEvidenceTypes": ["MANUAL_REVIEW", "REPORT"],
+          "minimumSvl": "SVL-2",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["A documented incident response runbook exists and its most recent exercise record is dated within the last 12 months."],
+    "evidenceRequirements": [{ "type": "REPORT", "required": true }],
+    "ownerRoles": ["security", "operations"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["operations", "incident_response"]
+  },
+  {
+    "controlId": "OPS-BACKUP-TEST-001",
+    "version": 1,
+    "status": "active",
+    "title": "Backup Restore Drill",
+    "group": "operations",
+    "domain": "operations",
+    "subdomain": "backup",
+    "layer": "contain_recover",
+    "requirement": "A restore from the backups required by INFRA-BACKUP-001 must be successfully performed and verified on a defined schedule.",
+    "rationale": "A backup that has never been restored is only a hypothesis; corruption, misconfiguration, or an incomplete backup is only discovered by actually restoring it.",
+    "threatIds": ["THR-INFRA-BACKUP-LOSS"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "contains", "value": "database" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["manual_review"], "SVL-2": ["manual_review"], "SVL-3": ["manual_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "manual_review",
+          "procedure": "Review the most recent backup restore drill record and confirm the restored data was verified against the source and the drill occurred within the defined schedule.",
+          "requiredEvidenceTypes": ["REPORT"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["A backup restore drill completed within the defined schedule, with the restored data verified against the source."],
+    "evidenceRequirements": [{ "type": "REPORT", "required": true }],
+    "ownerRoles": ["operations", "infrastructure"],
+    "references": [],
+    "relationships": { "dependsOn": ["INFRA-BACKUP-001"], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["operations", "backup"]
+  },
+  {
+    "controlId": "OPS-ADMIN-ACCESS-LOG-001",
+    "version": 1,
+    "status": "active",
+    "title": "Privileged Action Audit Trail",
+    "group": "operations",
+    "domain": "operations",
+    "subdomain": "audit_trail",
+    "layer": "detect",
+    "requirement": "Every action performed by an administrator or operator identity against another user's data or account must be recorded in an audit trail reviewable by security.",
+    "rationale": "Privileged identities are a common target and a common insider-risk vector; without an audit trail, misuse of privileged access is invisible until its consequences surface elsewhere.",
+    "threatIds": ["THR-OPS-UNAUDITED-PRIVILEGED-ACTION"],
+    "applicability": {
+      "when": { "all": [{ "fact": "identities", "operator": "intersects", "value": ["administrator", "operator"] }] }
+    },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "dynamic_test"], "SVL-3": ["config_review", "dynamic_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the audit logging configuration and confirm administrator and operator actions against another user's data or account are captured.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "dynamic_test",
+          "procedure": "Perform an administrative action against a test user's account and confirm an audit trail entry identifying the actor, action, and target is created.",
+          "requiredEvidenceTypes": ["AUDIT_LOG"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        }
+      ]
+    },
+    "passCriteria": ["An administrator or operator action against another user's data or account produces a reviewable audit trail entry."],
+    "evidenceRequirements": [{ "type": "AUDIT_LOG", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["security", "operations"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["operations", "audit"]
+  }
+]

@@ -22,6 +22,10 @@
     { "threatId": "THR-INFRA-OVERPRIVILEGED-IAM", "title": "Overprivileged Cloud IAM Role", "description": "A workload or user identity holds broader cloud permissions than its function requires, increasing the impact of any single compromise.", "category": "infrastructure" },
     { "threatId": "THR-INFRA-UNPATCHED-DEPENDENCY", "title": "Unpatched Known-Vulnerable Dependency", "description": "A component runs a version with a publicly known vulnerability because it was not updated within a reasonable window.", "category": "infrastructure" },
     { "threatId": "THR-INFRA-LATERAL-MOVEMENT", "title": "Lateral Movement via Flat Network", "description": "An attacker who compromises one host uses an unsegmented network to reach other hosts, including data stores, directly.", "category": "infrastructure" },
-    { "threatId": "THR-INFRA-BACKUP-LOSS", "title": "Unrecoverable Data Loss", "description": "Backups do not exist, are not encrypted, or cannot be restored, so a destructive incident causes permanent data loss.", "category": "infrastructure" }
+    { "threatId": "THR-INFRA-BACKUP-LOSS", "title": "Unrecoverable Data Loss", "description": "Backups do not exist, are not encrypted, or cannot be restored, so a destructive incident causes permanent data loss.", "category": "infrastructure" },
+    { "threatId": "THR-OPS-INSUFFICIENT-LOGGING", "title": "Insufficient Security Logging", "description": "A security-relevant event occurs without producing a log record, preventing detection or investigation after the fact.", "category": "operations" },
+    { "threatId": "THR-OPS-LOG-TAMPERING", "title": "Log Tampering or Deletion", "description": "An attacker with access to a compromised host modifies or deletes local logs to cover their tracks.", "category": "operations" },
+    { "threatId": "THR-OPS-UNVERIFIED-IR-PLAN", "title": "Untested Incident Response Plan", "description": "An incident response runbook exists on paper but has never been exercised, so it fails or is too slow when a real incident occurs.", "category": "operations" },
+    { "threatId": "THR-OPS-UNAUDITED-PRIVILEGED-ACTION", "title": "Unaudited Privileged Action", "description": "A privileged identity performs a sensitive action with no record of who did it or when, preventing accountability and forensic review.", "category": "operations" }
   ]
 }
