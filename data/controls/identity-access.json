@@ -35,6 +35,13 @@
           "requiredEvidenceTypes": ["CODE", "CONFIG"],
           "minimumSvl": "SVL-1",
           "automatable": false
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt common authentication bypass techniques (header injection, method override, alternate path casing) against protected routes and confirm none succeed.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -77,6 +84,13 @@
           "requiredEvidenceTypes": ["CODE", "CONFIG"],
           "minimumSvl": "SVL-1",
           "automatable": false
+        },
+        {
+          "type": "manual_review",
+          "procedure": "A reviewer independently inspects the production credential store (or a representative export) to confirm no recoverable password value is present.",
+          "requiredEvidenceTypes": ["MANUAL_REVIEW"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -115,6 +129,13 @@
           "procedure": "Confirm the hashing algorithm and parameters (e.g. bcrypt, scrypt, argon2 with an adequate cost factor) used for password storage.",
           "requiredEvidenceTypes": ["CODE", "CONFIG"],
           "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "manual_review",
+          "procedure": "A reviewer independently confirms the hashing algorithm and cost parameters in the production configuration match the validated algorithm approved for this security level.",
+          "requiredEvidenceTypes": ["MANUAL_REVIEW"],
+          "minimumSvl": "SVL-3",
           "automatable": false
         }
       ]
@@ -155,6 +176,20 @@
           "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": true
+        },
+        {
+          "type": "config_review",
+          "procedure": "Inspect the rate-limiting or account-lockout configuration and confirm thresholds and windows are set for the login endpoint.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt to bypass the throttle using distributed source IPs or credential-stuffing patterns and confirm the defense still triggers.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -197,6 +232,20 @@
           "requiredEvidenceTypes": ["MANUAL_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": false
+        },
+        {
+          "type": "config_review",
+          "procedure": "Inspect the identity provider or authentication configuration and confirm MFA is enforced (not merely offered) for every privileged role.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt to bypass or downgrade the MFA step (e.g. via a legacy endpoint or a remember-device flaw) for a privileged account.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -236,6 +285,13 @@
           "requiredEvidenceTypes": ["AUTOMATED_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": true
+        },
+        {
+          "type": "config_review",
+          "procedure": "Inspect the password reset token generation configuration and confirm the token is single-use and has a bounded expiry window.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
         }
       ]
     },
@@ -278,6 +334,13 @@
           "requiredEvidenceTypes": ["AUTOMATED_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": true
+        },
+        {
+          "type": "config_review",
+          "procedure": "Inspect the session store configuration and confirm a password change or account recovery event triggers invalidation of all other active sessions.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
         }
       ]
     },
@@ -317,6 +380,20 @@
           "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": true
+        },
+        {
+          "type": "code_review",
+          "procedure": "Review each protected endpoint's handler code and confirm an authorization check executes on the server before the protected action runs.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt to reach protected functionality through undocumented or legacy API paths that may bypass the primary authorization layer.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -356,6 +433,20 @@
           "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": true
+        },
+        {
+          "type": "code_review",
+          "procedure": "Review each data-access handler and confirm ownership or grant is checked against the authenticated identity before returning or modifying an object.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Enumerate adjacent object identifiers (sequential IDs, predictable UUIDs) across multiple resource types and confirm cross-user access remains denied.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -395,6 +486,20 @@
           "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": true
+        },
+        {
+          "type": "code_review",
+          "procedure": "Review the administrator API's routing and middleware configuration and confirm a role check gates every administrator endpoint.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt to reach administrator functionality via parameter pollution, verb tampering, or an unlisted administrator route.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -434,6 +539,20 @@
           "requiredEvidenceTypes": ["AUTOMATED_TEST", "MANUAL_TEST"],
           "minimumSvl": "SVL-2",
           "automatable": true
+        },
+        {
+          "type": "code_review",
+          "procedure": "Review request-binding code for privileged models and confirm an explicit allow-list, not a deny-list, governs which fields a client request may set.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Submit nested or alternately-cased privileged field names (e.g. user[role], ROLE, is_admin) to probe for allow-list gaps.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
         }
       ]
     },
@@ -472,6 +591,13 @@
           "procedure": "Review the authorization middleware/framework configuration and confirm a request with no matching rule is denied rather than allowed.",
           "requiredEvidenceTypes": ["CODE", "CONFIG"],
           "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "manual_review",
+          "procedure": "A reviewer traces a sample of routes with no explicit authorization rule and confirms each is denied rather than silently allowed.",
+          "requiredEvidenceTypes": ["MANUAL_REVIEW"],
+          "minimumSvl": "SVL-3",
           "automatable": false
         }
       ]
