@@ -49,4 +49,10 @@ describe("project-profile-schema", () => {
     const { projectId, ...rest } = validProfile;
     expect(validate(rest)).toBe(false);
   });
+
+  it("accepts a profile with components/identities/dataClasses omitted entirely (unknown, not empty)", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-profile-schema.json");
+    const { components, identities, dataClasses, ...rest } = validProfile;
+    expect(validate(rest), JSON.stringify(validate.errors)).toBe(true);
+  });
 });

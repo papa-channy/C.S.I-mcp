@@ -56,4 +56,11 @@ describe("project-schema", () => {
     const partial = { ...valid, profile: { ...valid.profile, features: restFeatures } };
     expect(validate(partial), JSON.stringify(validate.errors)).toBe(true);
   });
+
+  it("accepts a profile with components/identities/dataClasses omitted entirely (unknown, not empty)", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-schema.json");
+    const { components, identities, dataClasses, ...restProfile } = valid.profile;
+    const partial = { ...valid, profile: restProfile };
+    expect(validate(partial), JSON.stringify(validate.errors)).toBe(true);
+  });
 });

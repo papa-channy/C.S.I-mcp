@@ -16,18 +16,21 @@
     },
     "components": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 }
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Three-valued: omitted = not yet profiled (UNKNOWN); [] = profiled, no components apply (KNOWN NONE); [...] = profiled with these values (KNOWN)."
     },
     "identities": {
       "type": "array",
       "items": {
         "type": "string",
         "enum": ["anonymous", "user", "paid_user", "partner", "operator", "administrator", "super_administrator", "service_account", "machine_identity"]
-      }
+      },
+      "description": "Three-valued: omitted = not yet profiled (UNKNOWN); [] = profiled, no identities apply (KNOWN NONE); [...] = profiled with these values (KNOWN)."
     },
     "dataClasses": {
       "type": "array",
-      "items": { "type": "string", "enum": ["D0", "D1", "D2", "D3"] }
+      "items": { "type": "string", "enum": ["D0", "D1", "D2", "D3"] },
+      "description": "Three-valued: omitted = not yet profiled (UNKNOWN); [] = profiled, no data classes apply (KNOWN NONE); [...] = profiled with these values (KNOWN)."
     },
     "features": {
       "type": "object",
@@ -54,6 +57,6 @@
       "additionalProperties": false
     }
   },
-  "required": ["projectId", "securityLevel", "exposure", "components", "identities", "dataClasses", "features", "technologies"],
+  "required": ["projectId", "securityLevel", "exposure", "features", "technologies"],
   "additionalProperties": false
 }
