@@ -1,0 +1,216 @@
+[
+  {
+    "controlId": "PLAT-AI-001",
+    "version": 1,
+    "status": "active",
+    "title": "LLM Prompt Injection Mitigation",
+    "group": "platform_specific",
+    "domain": "platform_specific",
+    "subdomain": "llm_input_handling",
+    "layer": "prevent",
+    "requirement": "User- or tool-sourced content included in an LLM prompt must be treated as untrusted and must not be able to override system-level instructions.",
+    "rationale": "An LLM that treats all prompt content as equally authoritative lets untrusted content redirect the model into ignoring its intended constraints.",
+    "threatIds": ["THR-AI-PROMPT-INJECTION"],
+    "applicability": {
+      "when": { "all": [{ "fact": "features.ai", "operator": "eq", "value": true }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["code_review"], "SVL-2": ["code_review", "dynamic_test"], "SVL-3": ["code_review", "dynamic_test", "adversarial_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "code_review",
+          "procedure": "Review prompt construction and confirm untrusted content is structurally separated from system instructions (e.g. via role separation or delimiting) rather than concatenated into one instruction block.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "dynamic_test",
+          "procedure": "Submit standard prompt-injection probe strings as user input and confirm the model's behavior does not deviate from its system-level constraints.",
+          "requiredEvidenceTypes": ["AUTOMATED_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": true
+        },
+        {
+          "type": "adversarial_test",
+          "procedure": "Attempt indirect prompt injection via content the model retrieves or is given as a tool result, rather than direct user input.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No tested prompt injection probe, direct or indirect, causes the model to deviate from its system-level constraints."],
+    "evidenceRequirements": [
+      { "type": "CODE", "required": true },
+      { "type": "AUTOMATED_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }
+    ],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["platform_specific", "ai", "llm"]
+  },
+  {
+    "controlId": "PLAT-AI-002",
+    "version": 1,
+    "status": "active",
+    "title": "LLM Output Sanitization Before Execution",
+    "group": "platform_specific",
+    "domain": "platform_specific",
+    "subdomain": "llm_output_handling",
+    "layer": "prevent",
+    "requirement": "LLM-generated output must not be executed as code, used as a shell or database command, or rendered without sanitization, when a backend service acts on that output.",
+    "rationale": "Treating model output as inherently safe lets a successful prompt injection turn into code execution, command injection, or XSS wherever that output is consumed.",
+    "threatIds": ["THR-AI-INSECURE-OUTPUT-HANDLING"],
+    "applicability": {
+      "when": {
+        "all": [
+          { "fact": "features.ai", "operator": "eq", "value": true },
+          { "fact": "components", "operator": "contains", "value": "backend_api" }
+        ]
+      }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": { "SVL-1": ["code_review"], "SVL-2": ["code_review"], "SVL-3": ["code_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "code_review",
+          "procedure": "Review every place LLM output is consumed by the backend and confirm it is sanitized or validated the same way any other untrusted input would be, before execution, command construction, or rendering.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["LLM output cannot be executed as code or a system command, and is sanitized before rendering, without passing the same validation as any other untrusted input."],
+    "evidenceRequirements": [{ "type": "CODE", "required": true }],
+    "ownerRoles": ["application", "backend"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": ["PLAT-AI-001"], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["platform_specific", "ai", "llm"]
+  },
+  {
+    "controlId": "PLAT-AI-003",
+    "version": 1,
+    "status": "active",
+    "title": "Sensitive Data Exclusion from LLM Context",
+    "group": "platform_specific",
+    "domain": "platform_specific",
+    "subdomain": "llm_context_data",
+    "layer": "prevent",
+    "requirement": "Restricted-classification data must not be included in a prompt or context sent to an LLM unless the model provider contractually guarantees it is not retained or used for training.",
+    "rationale": "Data sent to an LLM may be logged, retained, or used to improve the model by the provider, which is a disclosure the data's classification may not permit.",
+    "threatIds": ["THR-AI-SENSITIVE-DATA-LEAKAGE"],
+    "applicability": {
+      "when": {
+        "all": [
+          { "fact": "features.ai", "operator": "eq", "value": true },
+          { "fact": "dataClasses", "operator": "contains", "value": "D3" }
+        ]
+      }
+    },
+    "baselineRisk": { "severity": "critical" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Review the data classification of every field included in prompts or context sent to the LLM provider, and confirm the provider's data retention terms for any restricted-classification field included.",
+          "requiredEvidenceTypes": ["CONFIG", "REPORT"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No restricted-classification field reaches an LLM prompt or context unless the provider's terms confirm it is not retained or used for training."],
+    "evidenceRequirements": [{ "type": "REPORT", "required": true }],
+    "ownerRoles": ["privacy", "security"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": ["PLAT-AI-001"], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["platform_specific", "ai", "data_classification"]
+  },
+  {
+    "controlId": "PLAT-MOBILE-001",
+    "version": 1,
+    "status": "active",
+    "title": "Mobile Certificate Pinning",
+    "group": "platform_specific",
+    "domain": "platform_specific",
+    "subdomain": "mobile_transport",
+    "layer": "prevent",
+    "requirement": "A mobile application must pin the certificate or public key of its backend API rather than trusting any certificate issued by a publicly trusted CA.",
+    "rationale": "Without pinning, an attacker positioned on the network path can intercept traffic using any certificate the device's trust store accepts, including one from a compromised or coerced CA.",
+    "threatIds": ["THR-MOBILE-MITM"],
+    "applicability": {
+      "when": { "all": [{ "fact": "components", "operator": "contains", "value": "mobile_app" }] }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "dynamic_test"], "SVL-3": ["config_review", "dynamic_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Inspect the mobile app's network layer configuration and confirm certificate or public-key pinning is configured for the backend API host.",
+          "requiredEvidenceTypes": ["CODE", "CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "dynamic_test",
+          "procedure": "Intercept the app's traffic with a proxy presenting a certificate trusted by the device but not matching the pinned value, and confirm the connection is rejected.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-2",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["A connection presenting a certificate that does not match the pinned value is rejected by the app."],
+    "evidenceRequirements": [{ "type": "MANUAL_TEST", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["application", "security"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["platform_specific", "mobile"]
+  },
+  {
+    "controlId": "PLAT-MOBILE-002",
+    "version": 1,
+    "status": "active",
+    "title": "Mobile Local Storage Encryption",
+    "group": "platform_specific",
+    "domain": "platform_specific",
+    "subdomain": "mobile_storage",
+    "layer": "prevent",
+    "requirement": "Confidential or restricted data cached or stored locally on a mobile device must be encrypted using the platform's secure storage mechanism, not a plain file or unencrypted database.",
+    "rationale": "A lost, stolen, or backed-up device can expose locally stored data directly, without needing to compromise the backend at all.",
+    "threatIds": ["THR-MOBILE-INSECURE-STORAGE"],
+    "applicability": {
+      "when": {
+        "all": [
+          { "fact": "components", "operator": "contains", "value": "mobile_app" },
+          { "fact": "dataClasses", "operator": "intersects", "value": ["D2", "D3"] }
+        ]
+      }
+    },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["code_review"], "SVL-2": ["code_review"], "SVL-3": ["code_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "code_review",
+          "procedure": "Review local storage and caching code paths that handle confidential or restricted data and confirm they use the platform's secure storage API rather than a plain file or unencrypted database.",
+          "requiredEvidenceTypes": ["CODE"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No confidential or restricted data is stored on-device outside the platform's secure storage mechanism."],
+    "evidenceRequirements": [{ "type": "CODE", "required": true }],
+    "ownerRoles": ["application", "privacy"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["platform_specific", "mobile", "data_classification"]
+  }
+]
