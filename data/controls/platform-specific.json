@@ -84,7 +84,7 @@
         }
       ]
     },
-    "passCriteria": ["LLM output cannot be executed as code or a system command, and is sanitized before rendering, without passing the same validation as any other untrusted input."],
+    "passCriteria": ["LLM output cannot be executed as code or a system command, or be rendered, without passing the same validation as any other untrusted input."],
     "evidenceRequirements": [{ "type": "CODE", "required": true }],
     "ownerRoles": ["application", "backend"],
     "references": [],

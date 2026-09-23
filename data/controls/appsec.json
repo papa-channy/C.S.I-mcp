@@ -136,6 +136,7 @@
     "applicability": {
       "when": {
         "any": [
+          { "fact": "components", "operator": "contains", "value": "database" },
           { "fact": "technologies.databases", "operator": "contains", "value": "postgresql" },
           { "fact": "technologies.databases", "operator": "contains", "value": "mysql" },
           { "fact": "technologies.databases", "operator": "contains", "value": "mongodb" }
