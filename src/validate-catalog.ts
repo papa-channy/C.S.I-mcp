@@ -209,13 +209,13 @@ export function validateCatalog(dataDir: string): CatalogViolation[] {
     }
   }
 
-  // assurance-cumulative: SVL-1 subset of SVL-2 subset of SVL-3
+  // assurance-cumulative: each present SVL level must be a superset of the nearest lower present level
   for (const { source, control } of allControls) {
     const assurance = control.assurance ?? {};
-    for (let i = 1; i < SVL_ORDER.length; i++) {
-      const lower = assurance[SVL_ORDER[i - 1]];
-      const higher = assurance[SVL_ORDER[i]];
-      if (!lower || !higher) continue;
+    const presentLevels = SVL_ORDER.filter((svl) => assurance[svl] !== undefined);
+    for (let i = 1; i < presentLevels.length; i++) {
+      const lower = assurance[presentLevels[i - 1]];
+      const higher = assurance[presentLevels[i]];
       const higherSet = new Set(higher);
       const missing = lower.filter((v) => !higherSet.has(v));
       if (missing.length > 0) {
@@ -224,8 +224,8 @@ export function validateCatalog(dataDir: string): CatalogViolation[] {
           severity: "error",
           source,
           entityId: control.controlId,
-          path: `assurance.${SVL_ORDER[i]}`,
-          message: `assurance.${SVL_ORDER[i]} drops requirement(s) [${missing.join(", ")}] present in assurance.${SVL_ORDER[i - 1]}`,
+          path: `assurance.${presentLevels[i]}`,
+          message: `assurance.${presentLevels[i]} drops requirement(s) [${missing.join(", ")}] present in assurance.${presentLevels[i - 1]}`,
         });
       }
     }

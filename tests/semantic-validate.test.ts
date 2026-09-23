@@ -129,6 +129,19 @@ describe("validateCatalog", () => {
     expect(violations.some((v) => v.code === "CATALOG_ASSURANCE_NOT_CUMULATIVE")).toBe(true);
   });
 
+  it("catches assurance that drops a requirement at a non-adjacent SVL level when the intermediate level is absent", () => {
+    const dir = writeCatalog({
+      "a.json": [
+        baseControl({
+          verification: { methods: [{ type: "a" }] },
+          assurance: { "SVL-1": ["a"], "SVL-3": [] },
+        }),
+      ],
+    });
+    const violations = validateCatalog(dir);
+    expect(violations.some((v) => v.code === "CATALOG_ASSURANCE_NOT_CUMULATIVE")).toBe(true);
+  });
+
   it("catches criticality weights that don't sum to 1.0", () => {
     const dir = writeCatalog({ "a.json": [baseControl()] }, undefined, { a: 0.3, b: 0.3 });
     const violations = validateCatalog(dir);
