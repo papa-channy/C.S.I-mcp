@@ -18,12 +18,18 @@ Last updated: 2026-09-28
 - **devops-supply-chain control domain:** done, merged (bounded task, no
   spec/plan doc — dependency SCA + provenance/pinning, CI secret isolation,
   third-party CI action integrity, build/release artifact integrity).
-- **Test suite:** 149/149 passing, 30 files (`npm test`).
+- **governance control domain:** done, merged (bounded task, no spec/plan
+  doc — release sign-off, incident response ownership, time-boxed risk
+  acceptance review, third-party vendor assessment). This is the 8th and
+  last of the originally-planned control domains — see "Key design
+  decisions" below for how its controls stay applicable regardless of a
+  project's technical profile.
+- **Test suite:** 154/154 passing, 31 files (`npm test`).
 - **Server implementation (MCP tools, runtime formula computation, database):** not started.
-- **Control content:** 44 controls across 7 domain files (`identity-access`,
+- **Control content:** 48 controls across 8 domain files (`identity-access`,
   `appsec`, `infrastructure`, `operations`, `platform-specific`,
-  `data-crypto`, `devops-supply-chain`). 1 of the original 8 planned
-  domains remains unwritten: `governance`.
+  `data-crypto`, `devops-supply-chain`, `governance`) — all 8 originally
+  planned domains are now written.
 
 ## Architecture in one paragraph
 
@@ -49,10 +55,11 @@ data/
                               # criticality weights, scoring model (5 files)
   catalogs/                  # threats, references, evidence-types,
                               # owner-roles, asset-types (5 files)
-  controls/                  # 7 files, 44 controls total: identity-access
+  controls/                  # 8 files, 48 controls total: identity-access
                               # (12), appsec (6), infrastructure (6),
                               # operations (5), platform-specific (5),
-                              # data-crypto (5), devops-supply-chain (5)
+                              # data-crypto (5), devops-supply-chain (5),
+                              # governance (4)
   schemas/                   # 18 JSON Schema (draft 2020-12) documents —
                               # see "Schemas" table below
   process/                   # verification flow, release gates, incident
@@ -127,6 +134,19 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
   and `score.scoreModel` (id+version) — so a report stays reproducible
   years later even after the catalog, formulas, or a project's profile
   change.
+- **Process/organizational controls stay applicable without a schema
+  change.** Every domain before `governance` gates `applicability.when` on
+  a project's *technical* profile (has a database, has file upload, ...).
+  Governance controls (security sign-off, incident response ownership,
+  risk acceptance review, vendor assessment) must apply regardless of
+  technical profile. Rather than adding an `alwaysApplicable` escape hatch
+  to `control-schema.json`, the convention is to gate on
+  `{"fact": "securityLevel", "operator": "in", "value": ["SVL-0", "SVL-1",
+  "SVL-2", "SVL-3"]}` — `securityLevel` is the one `ProjectProfile` field
+  that's always required with exactly those 4 possible values, so this
+  condition is trivially always true for any real profile, using the
+  existing Applicability Rule DSL exactly as-is. All 4 `governance`
+  controls use this pattern; see `data/controls/governance.json`.
 - **Self-contained schema files.** No cross-file `$ref` between schemas
   (small enums like `groupBy` or `evidenceType` are duplicated verbatim
   across the few files that need them) — keeps the Ajv validation harness
@@ -137,11 +157,11 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
 
 ```bash
 npm install
-npm test        # expect: 30 files, 149 tests, all passing
+npm test        # expect: 31 files, 154 tests, all passing
 ```
 
 `data/manifest.json` is the single source of truth for what's registered —
-`controls.count` (44), `schemas.files` (18 entries), `core.files` (5
+`controls.count` (48), `schemas.files` (18 entries), `core.files` (5
 entries) are all test-enforced against what's actually on disk
 (`tests/manifest.test.ts`).
 
@@ -183,22 +203,15 @@ previously flagged as blocking further control-content scaling:
   profiled and confirmed absent, populated = profiled and present), so an
   empty array can no longer be misread as "not applicable."
 
-### 1. Populate the remaining control content (Phase 1's own disclosed follow-up)
-7 of 8 planned domain files now exist: `identity-access` (12 controls),
-`appsec` (6), `infrastructure` (6), `operations` (5), `platform-specific`
-(5), `data-crypto` (5), `devops-supply-chain` (5) — 44 controls total. 1
-domain remains unwritten: `governance`. It is fully specified in the
-original USSVS source material but not yet authored as JSON. Governance
-differs from every domain built so far: its controls are expected to be
-organizational/process-level rather than gated by a project's technical
-profile (e.g. "a security review happened before this release," not "this
-project has a database") — the existing `ProjectProfile`-based
-applicability model may not fit cleanly, and this needs a short design
-pass before content is written, not just a repeat of the established
-pattern. This is independent of everything else and can proceed in
-parallel with the MCP server work below.
+### Control content is complete — all 8 originally planned domains done
+`identity-access` (12), `appsec` (6), `infrastructure` (6), `operations`
+(5), `platform-specific` (5), `data-crypto` (5), `devops-supply-chain`
+(5), `governance` (4) — 48 controls total. This was Phase 1's own
+disclosed follow-up item; nothing further is planned here unless new
+domains are identified later. What remains is making any of this
+catalog data *executable*:
 
-### 2. Design and build the MCP server itself
+### 1. Design and build the MCP server itself
 Nothing in `data/` is executable yet — every formula, applicability rule,
 and scoring model is documented data, not code. The server phase needs to:
 implement the Applicability Engine (evaluates a `ProjectProfile` against
@@ -210,7 +223,7 @@ documented in `data/core/criticality-weights.json` and
 depends on nothing above being finished first — it can start once the
 core schemas (already done) are considered stable.
 
-### 3. Plan the SQLite migration (explicitly deferred since Phase 1)
+### 2. Plan the SQLite migration (explicitly deferred since Phase 1)
 Both phases were written so this stays cheap: every entity is a flat
 record with small nested value-objects, no Control-in-Control nesting,
 and IDs that read naturally as foreign keys. Not urgent — revisit once
