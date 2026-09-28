@@ -104,6 +104,36 @@ describe("calculateScore — domainScores", () => {
     expect(result.domainScores.map((d) => d.domain)).toEqual(["appsec", "infra"]);
   });
 
+  it("DomainScore reports every per-status count and coverage field, not just domain/criticalFindings/highFindings", () => {
+    // One domain, 7 controls: 2 PASS, 1 FAIL, 1 PARTIAL, 1 NOT_TESTED, 1 N/A, 1 ACCEPTED_RISK.
+    const sevenControls: ControlDomainInput[] = Array.from({ length: 7 }, (_, i) => ({ controlId: `S-00${i + 1}`, domain: "appsec" }));
+    const assessments: ControlAssessmentInput[] = [
+      { controlId: "S-001", status: "PASS" },
+      { controlId: "S-002", status: "PASS" },
+      { controlId: "S-003", status: "FAIL" },
+      { controlId: "S-004", status: "PARTIAL" },
+      { controlId: "S-005", status: "NOT_TESTED" },
+      { controlId: "S-006", status: "N/A" },
+      { controlId: "S-007", status: "ACCEPTED_RISK" },
+    ];
+    const result = calculateScore(assessments, sevenControls, [], model);
+    const appsec = result.domainScores.find((d) => d.domain === "appsec")!;
+
+    // non-excluded (not N/A/ACCEPTED_RISK): PASS, PASS, FAIL, PARTIAL, NOT_TESTED = 5 controls
+    // weighted sum = 1.0 + 1.0 + 0 + 0.5 + 0 = 2.5 -> score = 100 * 2.5 / 5 = 50
+    expect(appsec.score).toBe(50);
+    expect(appsec.totalControls).toBe(7);
+    expect(appsec.applicableControls).toBe(5);
+    expect(appsec.assessedControls).toBe(4); // applicable minus NOT_TESTED
+    expect(appsec.coveragePercent).toBeCloseTo((4 / 5) * 100);
+    expect(appsec.passCount).toBe(2);
+    expect(appsec.failCount).toBe(1);
+    expect(appsec.partialCount).toBe(1);
+    expect(appsec.notTestedCount).toBe(1);
+    expect(appsec.notApplicableCount).toBe(1);
+    expect(appsec.acceptedRiskCount).toBe(1);
+  });
+
   it("counts an open critical finding against the domain of any control it references", () => {
     const assessments: ControlAssessmentInput[] = [
       { controlId: "A-001", status: "PASS" },

@@ -72,6 +72,8 @@ describe("expandPlan — selection filters", () => {
     const unknownProfile: ProjectProfile = { ...profile, identities: undefined };
     const controlsWithUnknown: PlanControl[] = [
       { ...controls[0], applicability: { when: { fact: "identities", operator: "contains", value: "admin" } } },
+      // Same profile, but resolves to "applicable" (not "unknown") — must be excluded when filtering for ["unknown"].
+      { ...controls[1], controlId: "A-003", applicability: { when: { fact: "components", operator: "contains", value: "backend_api" } } },
     ];
     const drafts = expandPlan(plan({ selection: { applicability: ["unknown"] } }), controlsWithUnknown, unknownProfile, []);
     expect(drafts).toEqual([{ groupBy: "domain", groupValue: "appsec", controlIds: ["A-002"] }]);
