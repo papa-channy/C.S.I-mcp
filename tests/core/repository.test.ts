@@ -107,6 +107,10 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
     writeFileSync(join(dir, "plans", "PLAN-1.json"), JSON.stringify(plan));
     expect(await repo.getPlan("PLAN-1")).toEqual(plan);
   });
+
+  it("getPlan rejects a path-traversal planId rather than reading outside the data dir", async () => {
+    await expect(repo.getPlan("../../../etc/passwd")).rejects.toThrow();
+  });
 });
 
 function readFileSyncUtf8(path: string): string {

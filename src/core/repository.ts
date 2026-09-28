@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadJson } from "../validate.js";
 import type { AssessmentPlan, PlanControl as Control } from "./plan-expander.js";
 import type { CriticalityFormula } from "./criticality.js";
 import type { ScoreModel } from "./score.js";
 import type { ProjectReport } from "./report-builder.js";
+import type { ProjectProfile } from "./applicability.js";
 
 export interface Project {
   projectId: string;
@@ -12,7 +13,7 @@ export interface Project {
   owner: string;
   createdAt: string;
   profileRevision: number;
-  profile: unknown;
+  profile: ProjectProfile;
 }
 
 export interface Threat {
@@ -37,12 +38,18 @@ export interface ControlAssessment {
   assessmentId: string;
   projectId: string;
   controlId: string;
-  status: string;
+  status: "PASS" | "FAIL" | "PARTIAL" | "N/A" | "NOT_TESTED" | "ACCEPTED_RISK";
   [key: string]: unknown;
 }
 
 export interface Finding {
   findingId: string;
+  title: string;
+  controlIds: string[];
+  status: "open" | "in_progress" | "resolved" | "accepted" | "false_positive";
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  priority: { index: number };
+  criticality: { index: number };
   [key: string]: unknown;
 }
 
@@ -73,6 +80,12 @@ export interface SecurityRepository {
   saveReport(report: ProjectReport): Promise<void>;
 }
 
+function assertSafeIdSegment(id: string, label: string): void {
+  if (!/^[A-Za-z0-9._-]+$/.test(id) || id === "." || id === "..") {
+    throw new Error(`JsonRepository: unsafe ${label} "${id}" — must match /^[A-Za-z0-9._-]+$/ and not be "." or ".."`);
+  }
+}
+
 function writeJsonAtomic(path: string, data: unknown): void {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -85,6 +98,7 @@ export class JsonRepository implements SecurityRepository {
   constructor(private readonly dataDir: string = "data") {}
 
   async getProject(projectId: string): Promise<Project> {
+    assertSafeIdSegment(projectId, "projectId");
     return loadJson<Project>(join(this.dataDir, "projects", projectId, "project.json"));
   }
 
@@ -119,6 +133,7 @@ export class JsonRepository implements SecurityRepository {
   }
 
   async getPlan(planId: string): Promise<AssessmentPlan> {
+    assertSafeIdSegment(planId, "planId");
     return loadJson<AssessmentPlan>(join(this.dataDir, "plans", `${planId}.json`));
   }
 
@@ -126,24 +141,32 @@ export class JsonRepository implements SecurityRepository {
     // ControlAssessment (control-assessment-schema.json) carries no runId field, so per-run filtering isn't
     // derivable from the assessment record alone — this returns the full project set regardless of runId.
     // Per-run linkage is a later spec's (the MCP/agent layer's) concern, not this Core Engine repository's.
+    assertSafeIdSegment(projectId, "projectId");
     const path = join(this.dataDir, "projects", projectId, "assessments.json");
     return existsSync(path) ? loadJson<ControlAssessment[]>(path) : [];
   }
 
   async getFindings(projectId: string): Promise<Finding[]> {
+    assertSafeIdSegment(projectId, "projectId");
     const path = join(this.dataDir, "projects", projectId, "findings.json");
     return existsSync(path) ? loadJson<Finding[]>(path) : [];
   }
 
   async saveRun(run: AssessmentRun): Promise<void> {
+    assertSafeIdSegment(run.projectId, "projectId");
+    assertSafeIdSegment(run.runId, "runId");
     writeJsonAtomic(join(this.dataDir, "projects", run.projectId, "runs", `${run.runId}.json`), run);
   }
 
   async saveBatch(batch: AssessmentBatch): Promise<void> {
+    assertSafeIdSegment(batch.projectId, "projectId");
+    assertSafeIdSegment(batch.batchId, "batchId");
     writeJsonAtomic(join(this.dataDir, "projects", batch.projectId, "batches", `${batch.batchId}.json`), batch);
   }
 
   async saveReport(report: ProjectReport): Promise<void> {
+    assertSafeIdSegment(report.projectId, "projectId");
+    assertSafeIdSegment(report.reportId, "reportId");
     writeJsonAtomic(join(this.dataDir, "projects", report.projectId, "reports", `${report.reportId}.json`), report);
   }
 }
