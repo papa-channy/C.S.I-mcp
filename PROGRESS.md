@@ -5,7 +5,7 @@ future MCP server that runs security reviews against real projects, scores
 them, and produces prioritized, reproducible reports. This document tracks
 what's built, how it's organized, and what's left.
 
-Last updated: 2026-09-23
+Last updated: 2026-09-28
 
 ## Status at a glance
 
@@ -15,12 +15,15 @@ Last updated: 2026-09-23
   domains):** done, merged — see
   `docs/superpowers/specs/2026-09-22-catalog-integrity-and-pilot-design.md`
   and `docs/superpowers/plans/2026-09-23-catalog-integrity-and-pilot.md`.
-- **Test suite:** 145/145 passing, 29 files (`npm test`).
+- **devops-supply-chain control domain:** done, merged (bounded task, no
+  spec/plan doc — dependency SCA + provenance/pinning, CI secret isolation,
+  third-party CI action integrity, build/release artifact integrity).
+- **Test suite:** 149/149 passing, 30 files (`npm test`).
 - **Server implementation (MCP tools, runtime formula computation, database):** not started.
-- **Control content:** 39 controls across 6 domain files (`identity-access`,
+- **Control content:** 44 controls across 7 domain files (`identity-access`,
   `appsec`, `infrastructure`, `operations`, `platform-specific`,
-  `data-crypto`). 2 of the original 8 planned domains remain unwritten:
-  `devops-supplychain`, `governance`.
+  `data-crypto`, `devops-supply-chain`). 1 of the original 8 planned
+  domains remains unwritten: `governance`.
 
 ## Architecture in one paragraph
 
@@ -46,10 +49,10 @@ data/
                               # criticality weights, scoring model (5 files)
   catalogs/                  # threats, references, evidence-types,
                               # owner-roles, asset-types (5 files)
-  controls/                  # 6 files, 39 controls total: identity-access
+  controls/                  # 7 files, 44 controls total: identity-access
                               # (12), appsec (6), infrastructure (6),
                               # operations (5), platform-specific (5),
-                              # data-crypto (5)
+                              # data-crypto (5), devops-supply-chain (5)
   schemas/                   # 18 JSON Schema (draft 2020-12) documents —
                               # see "Schemas" table below
   process/                   # verification flow, release gates, incident
@@ -134,11 +137,11 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
 
 ```bash
 npm install
-npm test        # expect: 29 files, 145 tests, all passing
+npm test        # expect: 30 files, 149 tests, all passing
 ```
 
 `data/manifest.json` is the single source of truth for what's registered —
-`controls.count` (39), `schemas.files` (18 entries), `core.files` (5
+`controls.count` (44), `schemas.files` (18 entries), `core.files` (5
 entries) are all test-enforced against what's actually on disk
 (`tests/manifest.test.ts`).
 
@@ -181,17 +184,19 @@ previously flagged as blocking further control-content scaling:
   empty array can no longer be misread as "not applicable."
 
 ### 1. Populate the remaining control content (Phase 1's own disclosed follow-up)
-6 of 8 planned domain files now exist: `identity-access` (12 controls),
+7 of 8 planned domain files now exist: `identity-access` (12 controls),
 `appsec` (6), `infrastructure` (6), `operations` (5), `platform-specific`
-(5), `data-crypto` (5) — 39 controls total. 2 domains remain unwritten:
-`devops-supplychain` and `governance`. These are fully specified in the
-original USSVS source material but not yet authored as JSON. This is
-independent of everything else and can proceed in parallel with the MCP
-server work below. Follow the exact pattern the existing domain files
-established (flat array of Control objects, `applicability` rules
-preferring Capability/Architecture over raw tech stack, `threatIds`
-referencing `catalogs/threats.json`, validated against
-`control-schema.json` and `src/validate-catalog.ts`).
+(5), `data-crypto` (5), `devops-supply-chain` (5) — 44 controls total. 1
+domain remains unwritten: `governance`. It is fully specified in the
+original USSVS source material but not yet authored as JSON. Governance
+differs from every domain built so far: its controls are expected to be
+organizational/process-level rather than gated by a project's technical
+profile (e.g. "a security review happened before this release," not "this
+project has a database") — the existing `ProjectProfile`-based
+applicability model may not fit cleanly, and this needs a short design
+pass before content is written, not just a repeat of the established
+pattern. This is independent of everything else and can proceed in
+parallel with the MCP server work below.
 
 ### 2. Design and build the MCP server itself
 Nothing in `data/` is executable yet — every formula, applicability rule,
