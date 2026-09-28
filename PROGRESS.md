@@ -24,8 +24,14 @@ Last updated: 2026-09-28
   last of the originally-planned control domains — see "Key design
   decisions" below for how its controls stay applicable regardless of a
   project's technical profile.
-- **Test suite:** 154/154 passing, 31 files (`npm test`).
-- **Server implementation (MCP tools, runtime formula computation, database):** not started.
+- **Test suite:** 244/244 passing, 38 files (`npm test`).
+- **Core Engine (pure-function computation layer):** done, merged — see
+  `docs/superpowers/specs/2026-09-28-core-engine-design.md` and
+  `docs/superpowers/plans/2026-09-28-core-engine-implementation.md`. 7
+  modules under `src/core/`: `applicability.ts`, `criticality.ts`,
+  `score.ts`, `plan-expander.ts`, `release-evaluator.ts`,
+  `report-builder.ts`, `repository.ts`.
+- **Server implementation (MCP tools, runtime formula computation, database):** the Core Engine's pure-function computation layer is done (above); the MCP tool/handler layer and agent orchestration are still not started.
 - **Control content:** 48 controls across 8 domain files (`identity-access`,
   `appsec`, `infrastructure`, `operations`, `platform-specific`,
   `data-crypto`, `devops-supply-chain`, `governance`) — all 8 originally
@@ -157,7 +163,7 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
 
 ```bash
 npm install
-npm test        # expect: 31 files, 154 tests, all passing
+npm test        # expect: 38 files, 244 tests, all passing
 ```
 
 `data/manifest.json` is the single source of truth for what's registered —
@@ -173,12 +179,15 @@ under Ajv `strict: true` like the other 17 schemas (`tests/schemas/
 finding-attack-path-schemas.test.ts`), and drift-guard tests for the 4
 hand-duplicated shapes now exist (`tests/schema-drift.test.ts`, 4 tests).
 
-Remaining gaps:
+A third gap is now **resolved** by the Core Engine final-review fix
+wave: item 1 below (the self-referential `prioritizedFindings` sort
+test) has been replaced with a real test that calls
+`sortPrioritizedFindings` from `src/core/report-builder.ts` on a
+deliberately unsorted fixture.
 
-1. The `prioritizedFindings` sort-invariant test is self-referential (it
-   sorts a fixture and compares it to itself) since no real sorting code
-   exists yet — fine for a schema-only phase, should become a real
-   comparator test once a server exists.
+1. ~~The `prioritizedFindings` sort-invariant test is self-referential
+   (it sorts a fixture and compares it to itself) since no real sorting
+   code exists yet~~ — **resolved**, see above.
 2. Referential integrity between denormalized fields (e.g. a Batch's
    `planId` should always equal its Run's `planId`) isn't schema-enforceable
    and isn't yet written down as a process rule anywhere.
@@ -186,6 +195,17 @@ Remaining gaps:
    across `catalogs/*.json` and their governing schema, guarded by a test
    from Phase 1 (`tests/catalogs/catalogs.test.ts`) — the Phase 2 duplicates
    handled by the drift-guard tests above are a separate set of shapes.
+
+## Core Engine follow-up items (parked at final review, not blocking)
+
+- Unrecognized `fact` strings in a Control's `applicability.when` (e.g. a typo like `features.authentcation`) silently evaluate to `not_applicable` instead of erroring — spec asked for a compatibility check the DSL can't currently express; needs a new validation step (e.g. in `validate-catalog.ts` or the applicability smoke test) cross-referencing every fact path against `project-profile-schema.json`'s properties.
+- `calculateScore` silently excludes any control with no assessment record at all (see the new doc comment on `calculateScore` in `src/core/score.ts`) rather than treating it as implicitly NOT_TESTED — deferred scoring-semantics change, needs its own design pass.
+- Control lifecycle `status` (`draft`/`active`/`deprecated`/`retired` per `control-schema.json`) is not enforced anywhere in the Core Engine — `getControls()` returns all records unfiltered regardless of status, and the `RELEASE_GATE_CONTROL_MAP` drift guard only checks `replacedBy`, not `status`. Zero live defect today (all 48 controls are `active`), but this is a gap in both the spec and the plan, not just the implementation.
+- `Score` (as `calculateScore` produces it) omits `computedAt` and `projectId`, which the standalone `score-schema.json` requires — this is intentional (it matches the report-embedded variant, the only thing anything currently consumes) but is an undocumented departure from the design spec's literal wording; recorded here for whoever eventually needs the standalone form.
+- `JsonRepository` never validates data against Ajv/the JSON schemas on read or write (`src/validate.ts`'s `createAjv`/`compileSchemaFromFile` exist but aren't used by `repository.ts`) — malformed on-disk data would flow straight into scoring with no error. Deferred until real project data starts flowing through this repository.
+- Sorting in `plan-expander.ts`/`report-builder.ts` mixes `localeCompare()` (locale-dependent) and bare `.sort()` (UTF-16 code-unit order) — low risk today (all real data is uppercase-ID/lowercase-ASCII), but not the single deterministic comparator the design spec's determinism guarantee implies.
+- 4 of the 48 real controls have a bare leaf condition (not wrapped in `all`/`any`) at the root of their `applicability.when` — for these, `evaluateApplicability`'s `matchedRules` is always `[]` even though a leaf did determine the verdict, so the explainability field is empty for exactly these 4 controls (the verdict itself is still correct).
+- No Ajv-based drift guard exists yet for the ~8 new TypeScript interfaces this plan added that restate frozen JSON Schemas (`Score`, `DomainScore`, `ProjectReport`, `ReleaseEvaluation`, etc.) — `tests/schema-drift.test.ts` covers 4 earlier shapes from Phase 2 but wasn't extended to these.
 
 ## Next steps, in a reasonable order
 
