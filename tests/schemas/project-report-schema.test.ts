@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileSchemaFromFile } from "../../src/validate.js";
+import { sortPrioritizedFindings } from "../../src/core/report-builder.js";
 
 describe("project-report-schema", () => {
   const valid = {
@@ -69,13 +70,18 @@ describe("project-report-schema", () => {
     expect(validate(rest)).toBe(false);
   });
 
-  it("enforces the prioritizedFindings sort invariant: priorityIndex asc, criticalityIndex desc, findingId asc", () => {
-    const sorted = [...valid.prioritizedFindings].sort((a, b) => {
-      if (a.priorityIndex !== b.priorityIndex) return a.priorityIndex - b.priorityIndex;
-      if (a.criticalityIndex !== b.criticalityIndex) return b.criticalityIndex - a.criticalityIndex;
-      return a.findingId.localeCompare(b.findingId);
-    });
-    expect(valid.prioritizedFindings.map((f) => f.findingId)).toEqual(sorted.map((f) => f.findingId));
+  it("sortPrioritizedFindings produces the prioritizedFindings sort invariant: priorityIndex asc, criticalityIndex desc, findingId asc", () => {
+    // Deliberately unsorted input — a genuine behavioral test of the real sort function, not a
+    // self-referential fixture that already happens to be sorted.
+    const unsorted = [
+      { findingId: "FND-003", priorityIndex: 1, criticalityIndex: 9, title: "SQL injection in search endpoint" },
+      { findingId: "FND-002", priorityIndex: 0, criticalityIndex: 7, title: "Predictable session token" },
+      { findingId: "FND-001", priorityIndex: 0, criticalityIndex: 9, title: "Admin API reachable without authentication" },
+    ];
+    const sorted = sortPrioritizedFindings(unsorted);
+    expect(sorted.map((f) => f.findingId)).toEqual(["FND-001", "FND-002", "FND-003"]);
+    // sortPrioritizedFindings must not mutate its input.
+    expect(unsorted.map((f) => f.findingId)).toEqual(["FND-003", "FND-002", "FND-001"]);
   });
 
   it("rejects a prioritizedFindings entry missing title", () => {
