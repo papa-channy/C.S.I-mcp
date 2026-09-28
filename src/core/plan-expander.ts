@@ -39,6 +39,8 @@ export interface BatchDraft {
   groupBy: string;
   groupValue: string;
   controlIds: string[];
+  // When absent, the caller is expected to apply plan.defaultMaxParallelAgents as the fallback —
+  // expandPlan itself never reads defaultMaxParallelAgents.
   maxParallelAgents?: number;
 }
 

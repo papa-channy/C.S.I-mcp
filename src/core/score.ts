@@ -65,6 +65,12 @@ function countActiveFindings(findings: FindingInput[], controlIds: Set<string>, 
   ).length;
 }
 
+/**
+ * Precondition (not enforced): every control the caller considers applicable/in-scope must have a
+ * corresponding entry in `assessments` (even if its status is `"NOT_TESTED"`) — a control present in
+ * `controls` but entirely absent from `assessments` is silently excluded from both the domain's counts
+ * and the score, rather than being treated as untested.
+ */
 export function calculateScore(
   assessments: ControlAssessmentInput[],
   controls: ControlDomainInput[],
