@@ -74,3 +74,50 @@ describe("calculateScore — overall formula", () => {
     expect(result.coverage.coveragePercent).toBeCloseTo((2 / 3) * 100);
   });
 });
+
+describe("calculateScore — domainScores", () => {
+  const twoDomainControls: ControlDomainInput[] = [
+    { controlId: "A-001", domain: "appsec" },
+    { controlId: "A-002", domain: "appsec" },
+    { controlId: "B-001", domain: "infra" },
+  ];
+
+  it("a domain with zero non-excluded controls is omitted from domainScores entirely, not scored 100 or 0", () => {
+    const assessments: ControlAssessmentInput[] = [
+      { controlId: "A-001", status: "PASS" },
+      { controlId: "A-002", status: "PASS" },
+      { controlId: "B-001", status: "N/A" }, // infra's only control is excluded -> zero-denominator domain
+    ];
+    const result = calculateScore(assessments, twoDomainControls, [], model);
+    expect(result.domainScores.map((d) => d.domain)).toEqual(["appsec"]);
+    expect(result.overallScore).toBe(100); // unaffected by infra's exclusion since it's excluded project-wide too
+  });
+
+  it("domainScores are sorted by domain name ascending", () => {
+    const assessments: ControlAssessmentInput[] = [
+      { controlId: "A-001", status: "PASS" },
+      { controlId: "A-002", status: "PASS" },
+      { controlId: "B-001", status: "PASS" },
+    ];
+    const reordered: ControlDomainInput[] = [twoDomainControls[2], twoDomainControls[0], twoDomainControls[1]];
+    const result = calculateScore(assessments, reordered, [], model);
+    expect(result.domainScores.map((d) => d.domain)).toEqual(["appsec", "infra"]);
+  });
+
+  it("counts an open critical finding against the domain of any control it references", () => {
+    const assessments: ControlAssessmentInput[] = [
+      { controlId: "A-001", status: "PASS" },
+      { controlId: "A-002", status: "PASS" },
+      { controlId: "B-001", status: "PASS" },
+    ];
+    const findings: FindingInput[] = [
+      { controlIds: ["A-001"], severity: "critical", status: "open" },
+      { controlIds: ["B-001"], severity: "high", status: "resolved" }, // resolved: not counted
+    ];
+    const result = calculateScore(assessments, twoDomainControls, findings, model);
+    const appsec = result.domainScores.find((d) => d.domain === "appsec")!;
+    const infra = result.domainScores.find((d) => d.domain === "infra")!;
+    expect(appsec.criticalFindings).toBe(1);
+    expect(infra.highFindings).toBe(0);
+  });
+});
