@@ -7,6 +7,7 @@ import {
   type FindingInput,
   type ScoreInput,
 } from "../../src/core/release-evaluator.js";
+import { loadJson } from "../../src/validate.js";
 
 const score: ScoreInput = { coverage: { coveragePercent: 92 } };
 
@@ -119,5 +120,21 @@ describe("evaluateRelease — unblockedCriticalAttackPaths / residualRisksAccept
 describe("evaluateRelease — controlCoverage", () => {
   it("passes through score.coverage.coveragePercent without recomputation", () => {
     expect(evaluateRelease(baseInputs()).controlCoverage).toBe(92);
+  });
+});
+
+describe("evaluateRelease — RELEASE_GATE_CONTROL_MAP drift guard", () => {
+  it("both mapped controlIds exist in the real catalog and are not replacedBy-superseded", () => {
+    const manifest = loadJson<{ controls: { files: string[] } }>("data/manifest.json");
+    const allControls = manifest.controls.files.flatMap((f) =>
+      loadJson<{ controlId: string; replacedBy?: string }[]>(`data/${f}`)
+    );
+    const byId = new Map(allControls.map((c) => [c.controlId, c]));
+
+    for (const controlId of Object.values(RELEASE_GATE_CONTROL_MAP)) {
+      const control = byId.get(controlId);
+      expect(control, `RELEASE_GATE_CONTROL_MAP references unknown controlId "${controlId}"`).toBeDefined();
+      expect(control?.replacedBy, `RELEASE_GATE_CONTROL_MAP's "${controlId}" has been superseded by "${control?.replacedBy}"`).toBeUndefined();
+    }
   });
 });
