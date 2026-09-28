@@ -1,0 +1,165 @@
+[
+  {
+    "controlId": "GOV-RELEASE-001",
+    "version": 1,
+    "status": "active",
+    "title": "Security Sign-off Before Production Release",
+    "group": "governance",
+    "domain": "release_governance",
+    "subdomain": "security_signoff",
+    "layer": "prevent",
+    "requirement": "A production release must have an explicit, recorded security sign-off from a designated security owner before it is deployed.",
+    "rationale": "Without a required sign-off, a release can reach production without anyone having actually confirmed its security posture, even if security review steps exist informally elsewhere.",
+    "threatIds": ["THR-GOV-UNAUTHORIZED-RELEASE"],
+    "applicability": { "when": { "fact": "securityLevel", "operator": "in", "value": ["SVL-0", "SVL-1", "SVL-2", "SVL-3"] } },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "manual_review"], "SVL-3": ["config_review", "manual_review", "manual_test"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm the release process requires a recorded security sign-off from a designated security owner before a production deployment can proceed.",
+          "requiredEvidenceTypes": ["CONFIG"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "manual_review",
+          "procedure": "Review a sample of recent production releases and confirm each has a recorded security sign-off predating the deployment.",
+          "requiredEvidenceTypes": ["DEPLOYMENT_RECORD"],
+          "minimumSvl": "SVL-2",
+          "automatable": false
+        },
+        {
+          "type": "manual_test",
+          "procedure": "Attempt to trigger a production deployment without the required sign-off and confirm the pipeline or process blocks it.",
+          "requiredEvidenceTypes": ["MANUAL_TEST"],
+          "minimumSvl": "SVL-3",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": [
+      "Every production deployment has a recorded security sign-off predating it.",
+      "A deployment attempted without a sign-off is blocked."
+    ],
+    "evidenceRequirements": [{ "type": "DEPLOYMENT_RECORD", "required": true, "requiredFor": ["SVL-2", "SVL-3"] }],
+    "ownerRoles": ["security", "product"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["governance", "release"]
+  },
+  {
+    "controlId": "GOV-IR-001",
+    "version": 1,
+    "status": "active",
+    "title": "Incident Response Ownership and Escalation Authority",
+    "group": "governance",
+    "domain": "incident_governance",
+    "subdomain": "ownership_and_escalation",
+    "layer": "context",
+    "requirement": "An incident response plan must designate a named individual or role with documented authority to declare a security incident and initiate the response process.",
+    "rationale": "Without a designated owner, incident declaration and escalation can stall while responsibility is unclear during the exact moment speed matters most.",
+    "threatIds": ["THR-GOV-UNOWNED-INCIDENT-RESPONSE"],
+    "applicability": { "when": { "fact": "securityLevel", "operator": "in", "value": ["SVL-0", "SVL-1", "SVL-2", "SVL-3"] } },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review"], "SVL-3": ["config_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm the incident response plan names an individual or role with documented authority to declare an incident, and that escalation contacts are current.",
+          "requiredEvidenceTypes": ["REPORT"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["The incident response plan names an owner or role with documented authority to declare an incident, and escalation contacts are current, not stale."],
+    "evidenceRequirements": [{ "type": "REPORT", "required": true }],
+    "ownerRoles": ["security", "operations"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["governance", "incident_response"]
+  },
+  {
+    "controlId": "GOV-RISK-001",
+    "version": 1,
+    "status": "active",
+    "title": "Time-Boxed Risk Acceptance Review",
+    "group": "governance",
+    "domain": "risk_governance",
+    "subdomain": "risk_review_cadence",
+    "layer": "contain_recover",
+    "requirement": "A formally accepted risk must have an expiration date and be re-reviewed before it expires; an accepted risk must not silently persist past its review date without a recorded decision to renew, remediate, or reject it.",
+    "rationale": "The RiskAcceptance schema already requires an expiry date, but nothing currently enforces that expired acceptances are actually revisited — an indefinitely accepted risk with no review point becomes a permanent, unexamined gap.",
+    "threatIds": ["THR-GOV-STALE-RISK-ACCEPTANCE"],
+    "applicability": { "when": { "fact": "securityLevel", "operator": "in", "value": ["SVL-0", "SVL-1", "SVL-2", "SVL-3"] } },
+    "baselineRisk": { "severity": "high" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "manual_review"], "SVL-3": ["config_review", "manual_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm a process exists to track accepted risks approaching or past their expiration date and route them for review.",
+          "requiredEvidenceTypes": ["REPORT"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "manual_review",
+          "procedure": "Review the current set of accepted risks and confirm none are past their expiration date without a recorded renew, remediate, or reject decision.",
+          "requiredEvidenceTypes": ["MANUAL_REVIEW"],
+          "minimumSvl": "SVL-2",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["No accepted risk is past its expiration date without a recorded review decision (renew, remediate, or reject)."],
+    "evidenceRequirements": [{ "type": "REPORT", "required": true }],
+    "ownerRoles": ["security"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["governance", "risk_acceptance"]
+  },
+  {
+    "controlId": "GOV-VENDOR-001",
+    "version": 1,
+    "status": "active",
+    "title": "Third-Party Vendor Security Assessment",
+    "group": "governance",
+    "domain": "vendor_governance",
+    "subdomain": "vendor_assessment",
+    "layer": "prevent",
+    "requirement": "A third-party vendor or service that will process or store the project's data, or that will be granted access to production systems, must undergo a documented security assessment before integration.",
+    "rationale": "A vendor integrated without assessment can introduce a security gap entirely outside the project's own control surface, one the project's own testing will never catch.",
+    "threatIds": ["THR-GOV-UNASSESSED-VENDOR"],
+    "applicability": { "when": { "fact": "securityLevel", "operator": "in", "value": ["SVL-0", "SVL-1", "SVL-2", "SVL-3"] } },
+    "baselineRisk": { "severity": "medium" },
+    "assurance": { "SVL-1": ["config_review"], "SVL-2": ["config_review", "manual_review"], "SVL-3": ["config_review", "manual_review"] },
+    "verification": {
+      "methods": [
+        {
+          "type": "config_review",
+          "procedure": "Confirm a documented security assessment process exists and is required before a new third-party vendor or service is integrated.",
+          "requiredEvidenceTypes": ["REPORT"],
+          "minimumSvl": "SVL-1",
+          "automatable": false
+        },
+        {
+          "type": "manual_review",
+          "procedure": "Review the vendor list and confirm each vendor with access to project data or production systems has a completed security assessment on file.",
+          "requiredEvidenceTypes": ["MANUAL_REVIEW"],
+          "minimumSvl": "SVL-2",
+          "automatable": false
+        }
+      ]
+    },
+    "passCriteria": ["Every vendor with access to project data or production systems has a completed security assessment on file."],
+    "evidenceRequirements": [{ "type": "REPORT", "required": true }],
+    "ownerRoles": ["security", "product"],
+    "references": [],
+    "relationships": { "dependsOn": [], "relatedTo": [], "supersedes": [], "compensatesFor": [], "conflictsWith": [] },
+    "tags": ["governance", "vendor"]
+  }
+]

@@ -10,7 +10,7 @@
     "files": ["catalogs/threats.json", "catalogs/references.json", "catalogs/evidence-types.json", "catalogs/owner-roles.json", "catalogs/asset-types.json"]
   },
   "controls": {
-    "count": 44,
+    "count": 48,
     "files": [
       "controls/identity-access.json",
       "controls/appsec.json",
@@ -18,7 +18,8 @@
       "controls/operations.json",
       "controls/platform-specific.json",
       "controls/data-crypto.json",
-      "controls/devops-supply-chain.json"
+      "controls/devops-supply-chain.json",
+      "controls/governance.json"
     ]
   },
   "schemas": {
