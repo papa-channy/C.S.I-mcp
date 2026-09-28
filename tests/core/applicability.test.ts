@@ -129,3 +129,30 @@ describe("evaluateApplicability — Kleene composition truth table", () => {
     expect(anyBranch.properties.any.minItems).toBe(1);
   });
 });
+
+describe("evaluateApplicability — catalog-engine compatibility smoke test", () => {
+  it("evaluates all 48 real controls without throwing or producing an unrecognized-grammar error", () => {
+    const manifest = loadJson<{ controls: { files: string[] } }>("data/manifest.json");
+    const allControls = manifest.controls.files.flatMap((f) => loadJson<Control[]>(`data/${f}`));
+    expect(allControls.length).toBe(48);
+
+    const placeholderProfile: ProjectProfile = {
+      securityLevel: "SVL-2",
+      exposure: ["internet_public"],
+      components: ["backend_api", "browser_frontend", "mobile_app", "ci_pipeline", "container_image", "release_pipeline"],
+      identities: ["anonymous", "user", "administrator"],
+      dataClasses: ["D0", "D1", "D2", "D3"],
+      features: {
+        authentication: true, authorization: true, adminInterface: true, fileUpload: true,
+        payment: true, webhook: true, oauth: true, ai: true,
+      },
+      technologies: { languages: ["typescript"], frameworks: ["nextjs"], databases: ["postgresql"], cloud: ["aws"] },
+    };
+
+    for (const control of allControls) {
+      expect(() => evaluateApplicability(control, placeholderProfile)).not.toThrow();
+      const result = evaluateApplicability(control, placeholderProfile);
+      expect(["applicable", "not_applicable", "unknown"]).toContain(result.autoResult);
+    }
+  });
+});
