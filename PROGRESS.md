@@ -25,7 +25,7 @@ Last updated: 2026-09-30
   last of the originally-planned control domains — see "Key design
   decisions" below for how its controls stay applicable regardless of a
   project's technical profile.
-- **Test suite:** 321/321 passing, 48 files (`npm test`).
+- **Test suite:** 325/325 passing, 48 files (`npm test`).
 - **Core Engine (pure-function computation layer):** done, merged — see
   `docs/superpowers/specs/2026-09-28-core-engine-design.md` and
   `docs/superpowers/plans/2026-09-28-core-engine-implementation.md`. 7
@@ -190,7 +190,7 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
 
 ```bash
 npm install
-npm test         # expect: 48 files, 321 tests, all passing
+npm test         # expect: 48 files, 325 tests, all passing
 npx tsc --noEmit # expect: clean (vitest alone does NOT type-check —
                   # this caught real bugs during MCP server development
                   # that npm test missed; always run both)
@@ -239,6 +239,31 @@ deliberately unsorted fixture.
 - 4 of the 48 real controls have a bare leaf condition (not wrapped in `all`/`any`) at the root of their `applicability.when` — for these, `evaluateApplicability`'s `matchedRules` is always `[]` even though a leaf did determine the verdict, so the explainability field is empty for exactly these 4 controls (the verdict itself is still correct).
 - No Ajv-based drift guard exists yet for the ~8 new TypeScript interfaces this plan added that restate frozen JSON Schemas (`Score`, `DomainScore`, `ProjectReport`, `ReleaseEvaluation`, etc.) — `tests/schema-drift.test.ts` covers 4 earlier shapes from Phase 2 but wasn't extended to these.
 
+## Real-world validation: full assessment of a real public project
+
+Ran the actual built MCP server (real protocol stack — `McpServer` +
+`Client` + `InMemoryTransport`, not a mock) through a complete 48-control
+assessment of **Outline** (github.com/outline/outline, ⭐40k+, live SaaS
+at getoutline.com), source-code-only (no live requests to the deployed
+service — a hard safety boundary, not a tool limitation). Real, persisted
+result: `overallScore` 51.3%, coverage 64.1%, 18 PASS / 4 PARTIAL / 3 FAIL
+/ 9 N/A / 14 NOT_TESTED, 5 real Findings with code-cited evidence. Full
+writeup (pipeline explanation + methodology + findings) at
+`docs/assessments/2026-09-30-outline-validation.md` — **intentionally
+untracked** (contains an unpatched, undisclosed real vulnerability in a
+third-party live service; do not commit until responsible disclosure to
+Outline's maintainers is resolved). Persisted assessment data itself is
+also untracked, under `data/projects/` and `data/plans/`.
+
+This run proved the tool produces genuine signal, but also surfaced two
+real bugs no amount of synthetic-fixture testing had caught, now both
+fixed and merged directly to main (bounded fixes, no separate branch):
+
+- **`components` had an undocumented, unwritten canonical vocabulary.** The 8 values real controls actually check (`backend_api`, `browser_frontend`, `ci_pipeline`, `container_image`, `database`, `file_storage`, `mobile_app`, `release_pipeline`) existed only as an implicit convention in old plan documents — never in the schema, a reference data file, or any tool description. A reasonable-looking-but-different profile silently produced 28/48 applicable controls instead of the correct 42/48. **Fixed:** the 8 values now live in `data/core/profile-taxonomy.json` (matching the existing home for `exposure`/`identities`/`dataClassification`), documented in both schema files' `components` description and the MCP tool `.describe()`s, and — structurally, not just documentation — `src/validate-catalog.ts` gained a 9th validation rule (`CATALOG_UNKNOWN_COMPONENT_VALUE`) that fails catalog validation if any control's applicability rule ever references a component value outside this taxonomy, making this exact class of silent drift impossible to reintroduce.
+- **`list_findings`'s `maxCriticalityIndex` filter had an inverted comparison direction.** `criticality.index` and `priority.index` run in *opposite* directions (criticality: 9 = worst; priority: 0 = most urgent) — the final-review fix wave's rename (`minCriticality` → `maxCriticalityIndex`) correctly fixed `priority`'s direction but carried the same `<=` comparison over to `criticality` too, which is wrong for its scale. Silently returned the *least* severe findings when asked for the most severe. **Fixed:** renamed to `minCriticalityIndex` with `>=` semantics (findings at or above the given severity); the existing test had baked in the same inverted assumption and was corrected alongside the fix.
+
+Also added while in the area (documentation-only, no logic changes): `.describe()` on `record_finding`'s `severityFactors`/`priorityIndex` (grounded in the real criticality weight file's per-factor direction), `.describe()` on `update_project_profile`'s three-valued fields, clarified that `evaluate_release`'s `incidentResponseVerified`/`backupRestoreVerified` are informational sub-checks that don't themselves gate `result` (verified against `release-evaluator.ts`, confirmed intentional — not a bug), and clarified `list_controls`' summary-vs-full response-shape difference in its tool description.
+
 ## MCP server follow-up items (parked at final whole-branch review, not blocking)
 
 The final review actually ran the built server against a live temp data
@@ -250,10 +275,12 @@ unvalidated `runId`, `list_controls`'s overload type lying on the
 `controlIds` path, `list_controls` showing stale applicability after a
 manual override, and `list_findings`'s `minPriority`/`minCriticality`
 filters being inverted against the schema's 0-is-most-urgent scale (now
-`maxPriorityIndex`/`maxCriticalityIndex`). All 6 are fixed, tested, and
-merged. What's left, explicitly deferred rather than silently dropped:
+`maxPriorityIndex`/`minCriticalityIndex` — see "Real-world validation"
+above for why these ended up with different comparison directions). All 6
+are fixed, tested, and merged. What's left, explicitly deferred rather
+than silently dropped:
 
-- No `outputSchema` is declared on any of the 11 tools, and no zod field carries `.describe()` — every handler needs an `as unknown as Record<string, unknown>` cast for `structuredContent` as a result, and an LLM caller has no machine-readable guidance on non-obvious semantics (the `[]`-vs-omitted three-valued patch fields, `severityFactors`' scales, the priority/criticality "lower is worse" direction). Real follow-up work, not a one-line fix — needs its own pass across all 11 tools.
+- No `outputSchema` is declared on any of the 11 tools — every handler needs an `as unknown as Record<string, unknown>` cast for `structuredContent` as a result. (Field-level `.describe()` coverage for the genuinely non-obvious fields is now done — see "Real-world validation" above — but full `outputSchema` declarations are still outstanding.)
 - `findingId`/`evidenceId` generation is `array.length + 1`, not `max(existing numeric suffix) + 1` — a hand-deleted record (the only way to resolve a Finding in this phase; see below) could produce a duplicate id. Fixing this means changing `nextSequentialId`'s signature (count → the actual id array) across `src/service/ids.ts` and its two call sites — deferred as a deliberately separate, larger change rather than folded into the final fix wave.
 - `src/mcp/server.ts`'s `main()` runs unconditionally at import time (no `import.meta.url` entry-point guard) — importing `buildServer` from a test connects a real `StdioServerTransport` to the importer's stdio. Nothing does this today (the integration test re-registers all 11 tools by hand instead), which also means `buildServer()`'s own tool registration is untested — a future dropped tool registration would be caught by nothing.
 - `AnalysisService.getScore`/`evaluateRelease` and `ReportService.generate` independently compute `Score`/`ReleaseEvaluation` (~25 duplicated lines) rather than sharing one pure `computeScore`/`computeRelease` function — this is intentional (each needs its own single-snapshot read to avoid `generate_report` observing different state than a separate `get_score` call), but nothing currently guards the two staying in sync if one changes. No test asserts `get_score`'s output equals `report.score` on identical data.
