@@ -43,7 +43,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach } from "vitest";
 import { join } from "node:path";
-import type { AssessmentBatch, AssessmentRun } from "../../src/core/repository.js";
+import type { AssessmentBatch, AssessmentRun, ControlAssessment, Evidence, Finding, Project } from "../../src/core/repository.js";
 import type { ProjectReport } from "../../src/core/report-builder.js";
 import type { AssessmentPlan } from "../../src/core/plan-expander.js";
 
@@ -110,6 +110,89 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
 
   it("getPlan rejects a path-traversal planId rather than reading outside the data dir", async () => {
     await expect(repo.getPlan("../../../etc/passwd")).rejects.toThrow();
+  });
+
+  it("getEvidence returns [] for a project with no evidence.json yet", async () => {
+    expect(await repo.getEvidence("PRJ-1")).toEqual([]);
+  });
+
+  it("getCatalogVersion reads the real manifest's catalogVersion", async () => {
+    const realRepo = new JsonRepository("data");
+    expect(await realRepo.getCatalogVersion()).toBe("2.1.0");
+  });
+
+  it("getRun rejects a path-traversal runId rather than reading outside the data dir", async () => {
+    await expect(repo.getRun("PRJ-1", "../../../etc/passwd")).rejects.toThrow();
+  });
+
+  it("saveProject then reload round-trips the Project", async () => {
+    const project: Project = {
+      projectId: "PRJ-1", name: "Demo", owner: "alice", createdAt: "2026-09-30T00:00:00.000Z",
+      profileRevision: 1,
+      profile: { securityLevel: "SVL-2", exposure: ["internet_public"], features: {}, technologies: {} },
+    };
+    await repo.saveProject(project);
+    const reloaded = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "project.json")));
+    expect(reloaded).toEqual(project);
+  });
+
+  it("saveFinding then reload round-trips the Finding under the project's findings.json", async () => {
+    const finding: Finding = {
+      findingId: "FND-001", title: "SQLi", controlIds: ["APP-INPUT-VAL-001"], attackScenario: "x",
+      impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2,
+      criticality: { index: 9, formulaId: "CRIT-DEFAULT", formulaVersion: "1.0.0", computedAt: "2026-09-30T00:00:00.000Z" },
+      priority: { index: 0, source: "agent", rationale: "r", assignedBy: "csi-mcp-agent", assignedAt: "2026-09-30T00:00:00.000Z" },
+      severity: "critical", status: "open",
+    };
+    await repo.saveFinding("PRJ-1", finding);
+    const reloaded = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "findings.json")));
+    expect(reloaded).toEqual([finding]);
+  });
+
+  it("saveEvidence then reload round-trips the Evidence under the project's evidence.json", async () => {
+    const evidence: Evidence = {
+      evidenceId: "EVD-001", type: "SCREENSHOT", location: "s3://x", capturedAt: "2026-09-30T00:00:00.000Z", capturedBy: "csi-mcp-agent",
+    };
+    await repo.saveEvidence("PRJ-1", evidence);
+    const reloaded = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "evidence.json")));
+    expect(reloaded).toEqual([evidence]);
+  });
+
+  it("saveControlAssessment appends a new controlId but replaces an existing one (upsert)", async () => {
+    const first: ControlAssessment = {
+      assessmentId: "A-1", projectId: "PRJ-1", controlId: "APP-INPUT-VAL-001", controlVersion: 1,
+      applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+      status: "NOT_TESTED", evidenceIds: [], findingIds: [], riskAcceptanceId: null,
+      owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: "2026-09-30T00:00:00.000Z", nextReviewAt: null, notes: null,
+    };
+    await repo.saveControlAssessment(first);
+    const second = { ...first, assessmentId: "A-2", status: "PASS" as const };
+    await repo.saveControlAssessment(second);
+    const all = await repo.getControlAssessments("PRJ-1");
+    expect(all).toHaveLength(1);
+    expect(all[0]).toEqual(second);
+
+    const other: ControlAssessment = { ...first, assessmentId: "A-3", controlId: "APP-INPUT-VAL-002" };
+    await repo.saveControlAssessment(other);
+    expect(await repo.getControlAssessments("PRJ-1")).toHaveLength(2);
+  });
+
+  it("savePlan then getPlan round-trips the AssessmentPlan", async () => {
+    const plan: AssessmentPlan = {
+      planId: "PLAN-DEFAULT-PRJ-1", version: 1, projectId: "PRJ-1", groupBy: "controlId",
+      defaultMaxParallelAgents: 1, createdAt: "2026-09-30T00:00:00.000Z",
+    };
+    await repo.savePlan(plan);
+    expect(await repo.getPlan("PLAN-DEFAULT-PRJ-1")).toEqual(plan);
+  });
+
+  it("saveRun then getRun round-trips the AssessmentRun", async () => {
+    const run: AssessmentRun = {
+      runId: "RUN-1", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "2.1.0", batchIds: [], status: "running", startedAt: "2026-09-30T00:00:00.000Z", completedAt: null,
+    };
+    await repo.saveRun(run);
+    expect(await repo.getRun("PRJ-1", "RUN-1")).toEqual(run);
   });
 });
 

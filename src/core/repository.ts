@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadJson } from "../validate.js";
-import type { AssessmentPlan, PlanControl as Control } from "./plan-expander.js";
+import type { AssessmentPlan, PlanControl } from "./plan-expander.js";
 import type { CriticalityFormula } from "./criticality.js";
 import type { ScoreModel } from "./score.js";
 import type { ProjectReport } from "./report-builder.js";
@@ -14,6 +14,26 @@ export interface Project {
   createdAt: string;
   profileRevision: number;
   profile: ProjectProfile;
+}
+
+export interface Control extends PlanControl {
+  version: number;
+  status: "draft" | "active" | "deprecated" | "retired";
+  title: string;
+}
+
+export type EvidenceType =
+  | "CODE" | "CONFIG" | "AUTOMATED_TEST" | "MANUAL_TEST" | "SCAN" | "LOG"
+  | "AUDIT_LOG" | "ARCHITECTURE" | "CI_ARTIFACT" | "DEPLOYMENT_RECORD"
+  | "SCREENSHOT" | "TICKET" | "REPORT" | "MANUAL_REVIEW";
+
+export interface Evidence {
+  evidenceId: string;
+  type: EvidenceType;
+  location: string;
+  description?: string;
+  capturedAt: string;
+  capturedBy: string;
 }
 
 export interface Threat {
@@ -47,9 +67,9 @@ export interface Finding {
   title: string;
   controlIds: string[];
   status: "open" | "in_progress" | "resolved" | "accepted" | "false_positive";
-  severity: "critical" | "high" | "medium" | "low" | "info";
-  priority: { index: number };
-  criticality: { index: number };
+  severity: "critical" | "high" | "medium" | "low" | "informational";
+  priority: { index: number; source: "agent" | "human"; rationale: string; assignedBy: string; assignedAt: string };
+  criticality: { index: number; formulaId: string; formulaVersion: string; computedAt: string };
   [key: string]: unknown;
 }
 
@@ -73,11 +93,19 @@ export interface SecurityRepository {
   getScoreModel(modelId: string): Promise<ScoreModel>;
   getReleaseGates(): Promise<ReleaseGateData>;
   getPlan(planId: string): Promise<AssessmentPlan>;
+  getCatalogVersion(): Promise<string>;
   getControlAssessments(projectId: string, runId?: string): Promise<ControlAssessment[]>;
   getFindings(projectId: string): Promise<Finding[]>;
+  getEvidence(projectId: string): Promise<Evidence[]>;
+  getRun(projectId: string, runId: string): Promise<AssessmentRun>;
   saveRun(run: AssessmentRun): Promise<void>;
   saveBatch(batch: AssessmentBatch): Promise<void>;
   saveReport(report: ProjectReport): Promise<void>;
+  savePlan(plan: AssessmentPlan): Promise<void>;
+  saveProject(project: Project): Promise<void>;
+  saveControlAssessment(assessment: ControlAssessment): Promise<void>;
+  saveFinding(projectId: string, finding: Finding): Promise<void>;
+  saveEvidence(projectId: string, evidence: Evidence): Promise<void>;
 }
 
 function assertSafeIdSegment(id: string, label: string): void {
@@ -137,6 +165,23 @@ export class JsonRepository implements SecurityRepository {
     return loadJson<AssessmentPlan>(join(this.dataDir, "plans", `${planId}.json`));
   }
 
+  async getCatalogVersion(): Promise<string> {
+    const manifest = loadJson<{ catalogVersion: string }>(join(this.dataDir, "manifest.json"));
+    return manifest.catalogVersion;
+  }
+
+  async getEvidence(projectId: string): Promise<Evidence[]> {
+    assertSafeIdSegment(projectId, "projectId");
+    const path = join(this.dataDir, "projects", projectId, "evidence.json");
+    return existsSync(path) ? loadJson<Evidence[]>(path) : [];
+  }
+
+  async getRun(projectId: string, runId: string): Promise<AssessmentRun> {
+    assertSafeIdSegment(projectId, "projectId");
+    assertSafeIdSegment(runId, "runId");
+    return loadJson<AssessmentRun>(join(this.dataDir, "projects", projectId, "runs", `${runId}.json`));
+  }
+
   async getControlAssessments(projectId: string, _runId?: string): Promise<ControlAssessment[]> {
     // ControlAssessment (control-assessment-schema.json) carries no runId field, so per-run filtering isn't
     // derivable from the assessment record alone — this returns the full project set regardless of runId.
@@ -168,5 +213,40 @@ export class JsonRepository implements SecurityRepository {
     assertSafeIdSegment(report.projectId, "projectId");
     assertSafeIdSegment(report.reportId, "reportId");
     writeJsonAtomic(join(this.dataDir, "projects", report.projectId, "reports", `${report.reportId}.json`), report);
+  }
+
+  async savePlan(plan: AssessmentPlan): Promise<void> {
+    assertSafeIdSegment(plan.planId, "planId");
+    writeJsonAtomic(join(this.dataDir, "plans", `${plan.planId}.json`), plan);
+  }
+
+  async saveProject(project: Project): Promise<void> {
+    assertSafeIdSegment(project.projectId, "projectId");
+    writeJsonAtomic(join(this.dataDir, "projects", project.projectId, "project.json"), project);
+  }
+
+  async saveControlAssessment(assessment: ControlAssessment): Promise<void> {
+    assertSafeIdSegment(assessment.projectId, "projectId");
+    const path = join(this.dataDir, "projects", assessment.projectId, "assessments.json");
+    const existing = existsSync(path) ? loadJson<ControlAssessment[]>(path) : [];
+    const next = existing.filter((a) => a.controlId !== assessment.controlId);
+    next.push(assessment);
+    writeJsonAtomic(path, next);
+  }
+
+  async saveFinding(projectId: string, finding: Finding): Promise<void> {
+    assertSafeIdSegment(projectId, "projectId");
+    const path = join(this.dataDir, "projects", projectId, "findings.json");
+    const existing = existsSync(path) ? loadJson<Finding[]>(path) : [];
+    existing.push(finding);
+    writeJsonAtomic(path, existing);
+  }
+
+  async saveEvidence(projectId: string, evidence: Evidence): Promise<void> {
+    assertSafeIdSegment(projectId, "projectId");
+    const path = join(this.dataDir, "projects", projectId, "evidence.json");
+    const existing = existsSync(path) ? loadJson<Evidence[]>(path) : [];
+    existing.push(evidence);
+    writeJsonAtomic(path, existing);
   }
 }
