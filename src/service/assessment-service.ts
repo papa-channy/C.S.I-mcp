@@ -1,8 +1,9 @@
-import type { AssessmentRun, Control, ControlAssessment, SecurityRepository } from "../core/repository.js";
+import type { AssessmentRun, Control, ControlAssessment, Evidence, EvidenceType, SecurityRepository } from "../core/repository.js";
 import type { AssessmentPlan } from "../core/plan-expander.js";
 import { evaluateApplicability, type Verdict } from "../core/applicability.js";
-import { withNotFound } from "./errors.js";
-import { generateUuid } from "./ids.js";
+import { withNotFound, ServiceError } from "./errors.js";
+import { generateUuid, nextSequentialId } from "./ids.js";
+import { AGENT_IDENTITY } from "./constants.js";
 
 export interface StartAssessmentRunResult {
   runId: string;
@@ -28,6 +29,17 @@ export interface ControlSummary {
   applicability: Verdict;
   assessmentStatus: AssessmentStatus | "NOT_ASSESSED";
   findingCount: number;
+}
+
+export interface RecordAssessmentInput {
+  projectId: string;
+  runId: string;
+  controlId: string;
+  status: AssessmentStatus;
+  evidence: { type: EvidenceType; location: string; description?: string }[];
+  notes?: string;
+  riskAcceptanceId?: string;
+  applicabilityOverride?: { result: Verdict; reason: string };
 }
 
 function defaultPlanId(projectId: string): string {
@@ -101,5 +113,53 @@ export class AssessmentService {
       controlId: c.control.controlId, title: c.control.title, domain: c.control.domain,
       applicability: c.applicability, assessmentStatus: c.assessmentStatus, findingCount: c.findingCount,
     }));
+  }
+
+  async recordAssessment(input: RecordAssessmentInput): Promise<ControlAssessment> {
+    const controls = await this.repository.getControls();
+    const control = controls.find((c) => c.controlId === input.controlId);
+    if (!control) {
+      throw new ServiceError("NOT_FOUND", `Control "${input.controlId}" not found`, { controlId: input.controlId });
+    }
+    const project = await withNotFound(
+      this.repository.getProject(input.projectId), `Project "${input.projectId}" not found`, { projectId: input.projectId }
+    );
+
+    if (input.status === "PASS" && input.evidence.length === 0) {
+      throw new ServiceError("VALIDATION_ERROR", "status PASS requires at least one evidence entry", { controlId: input.controlId });
+    }
+    if (input.status === "N/A" && !input.notes) {
+      throw new ServiceError("VALIDATION_ERROR", 'status "N/A" requires non-empty notes', { controlId: input.controlId });
+    }
+    if (input.status === "ACCEPTED_RISK" && !input.riskAcceptanceId) {
+      throw new ServiceError("VALIDATION_ERROR", 'status "ACCEPTED_RISK" requires riskAcceptanceId', { controlId: input.controlId });
+    }
+
+    const { autoResult, matchedRules } = evaluateApplicability(control, project.profile);
+    const applicability = input.applicabilityOverride
+      ? { autoResult, finalResult: input.applicabilityOverride.result, matchedRules, source: "manual_override" as const, reason: input.applicabilityOverride.reason }
+      : { autoResult, finalResult: autoResult, matchedRules, source: "automatic" as const };
+
+    const existingEvidence = await this.repository.getEvidence(input.projectId);
+    const evidenceIds: string[] = [];
+    for (let i = 0; i < input.evidence.length; i++) {
+      const item = input.evidence[i];
+      const evidenceId = nextSequentialId("EVD", existingEvidence.length + i);
+      const evidence: Evidence = {
+        evidenceId, type: item.type, location: item.location,
+        ...(item.description !== undefined ? { description: item.description } : {}),
+        capturedAt: this.now(), capturedBy: AGENT_IDENTITY,
+      };
+      await this.repository.saveEvidence(input.projectId, evidence);
+      evidenceIds.push(evidenceId);
+    }
+
+    const assessment: ControlAssessment = {
+      assessmentId: generateUuid(), projectId: input.projectId, controlId: input.controlId, controlVersion: control.version,
+      applicability, status: input.status, evidenceIds, findingIds: [], riskAcceptanceId: input.riskAcceptanceId ?? null,
+      owner: AGENT_IDENTITY, assessedBy: AGENT_IDENTITY, assessedAt: this.now(), nextReviewAt: null, notes: input.notes ?? null,
+    };
+    await this.repository.saveControlAssessment(assessment);
+    return assessment;
   }
 }

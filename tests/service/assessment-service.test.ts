@@ -105,3 +105,96 @@ describe("AssessmentService.listControls", () => {
     expect(full).toMatchObject({ controlId: "APP-INPUT-VAL-001", version: 1, applicability: expect.any(Object) });
   });
 });
+
+describe("AssessmentService.recordAssessment", () => {
+  it("records a PASS with evidence, generating evidenceIds and computing applicability automatically", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/x.test.ts" }],
+    });
+    expect(assessment.evidenceIds).toEqual(["EVD-001"]);
+    expect(assessment.applicability).toEqual({ autoResult: "applicable", finalResult: "applicable", matchedRules: ["fact"].length ? assessment.applicability.matchedRules : [], source: "automatic" });
+    expect(assessment.controlVersion).toBe(1);
+    expect(assessment.owner).toBe("csi-mcp-agent");
+    expect(assessment.assessedBy).toBe("csi-mcp-agent");
+    expect(assessment.riskAcceptanceId).toBeNull();
+    expect(assessment.findingIds).toEqual([]);
+    expect((await repo.getEvidence("PRJ-1"))[0]).toMatchObject({ evidenceId: "EVD-001", type: "AUTOMATED_TEST", capturedBy: "csi-mcp-agent" });
+  });
+
+  it("rejects PASS with zero evidence entries", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS", evidence: [],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects N/A without notes", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A", evidence: [],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("accepts N/A with notes", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A", evidence: [], notes: "not applicable here",
+    });
+    expect(assessment.status).toBe("N/A");
+    expect(assessment.notes).toBe("not applicable here");
+  });
+
+  it("rejects ACCEPTED_RISK without riskAcceptanceId", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "ACCEPTED_RISK", evidence: [],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("applies a manual applicability override with its reason", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "NOT_TESTED", evidence: [],
+      applicabilityOverride: { result: "not_applicable", reason: "legacy module being decommissioned" },
+    });
+    expect(assessment.applicability.finalResult).toBe("not_applicable");
+    expect(assessment.applicability.source).toBe("manual_override");
+    expect(assessment.applicability.reason).toBe("legacy module being decommissioned");
+  });
+
+  it("re-assessing the same controlId upserts rather than duplicating", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await service.recordAssessment({ projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "NOT_TESTED", evidence: [] });
+    await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/x.test.ts" }],
+    });
+    const all = await repo.getControlAssessments("PRJ-1");
+    expect(all).toHaveLength(1);
+    expect(all[0].status).toBe("PASS");
+  });
+
+  it("throws NOT_FOUND for an unknown controlId", async () => {
+    const repo = await makeProjectRepo();
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "NOPE-001", status: "NOT_TESTED", evidence: [],
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
