@@ -17,7 +17,7 @@
     "components": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Three-valued: omitted = not yet profiled (UNKNOWN); [] = profiled, no components apply (KNOWN NONE); [...] = profiled with these values (KNOWN)."
+      "description": "Three-valued: omitted = not yet profiled (UNKNOWN); [] = profiled, no components apply (KNOWN NONE); [...] = profiled with these values (KNOWN). Free-form, but the control catalog's applicability rules only currently recognize these 8 canonical values (see core/profile-taxonomy.json): backend_api, browser_frontend, ci_pipeline, container_image, database, file_storage, mobile_app, release_pipeline. Listing any other value is fine for documentation but has no effect on any control's computed applicability."
     },
     "identities": {
       "type": "array",

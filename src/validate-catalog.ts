@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadJson } from "./validate.js";
+import type { RuleNode } from "./core/applicability.js";
 
 export interface CatalogViolation {
   code: string;
@@ -28,6 +29,7 @@ interface Control {
   };
   assurance?: Record<string, string[]>;
   verification: { methods: VerificationMethod[] };
+  applicability?: { when: RuleNode };
 }
 
 interface ThreatCatalog {
@@ -36,6 +38,20 @@ interface ThreatCatalog {
 
 interface CriticalityWeights {
   weights: Record<string, number>;
+}
+
+interface ProfileTaxonomy {
+  components: { value: string }[];
+}
+
+// Collects every `{fact: "components", value}` leaf condition anywhere in a RuleNode tree
+// (including nested under all/any), regardless of operator — a components fact can appear
+// with eq/in/contains/intersects, and each shape carries its value(s) differently.
+function collectComponentValues(node: RuleNode): string[] {
+  if ("all" in node) return node.all.flatMap(collectComponentValues);
+  if ("any" in node) return node.any.flatMap(collectComponentValues);
+  if (node.fact !== "components") return [];
+  return Array.isArray(node.value) ? (node.value as string[]) : [String(node.value)];
 }
 
 const RELATIONSHIP_KEYS = ["dependsOn", "relatedTo", "supersedes", "compensatesFor", "conflictsWith"] as const;
@@ -229,6 +245,30 @@ export function validateCatalog(dataDir: string): CatalogViolation[] {
         });
       }
     }
+  }
+
+  // applicability-components-known: every "components" fact value a control's applicability
+  // rule checks for must be a canonical value from core/profile-taxonomy.json — an unrecognized
+  // value silently evaluates to not_applicable for every project (see PROGRESS.md's "MCP server
+  // follow-up items"), so this catches the typo/drift at catalog-authoring time instead of at
+  // assessment time.
+  const taxonomyData = loadJson<ProfileTaxonomy>(join(dataDir, "core/profile-taxonomy.json"));
+  const knownComponents = new Set(taxonomyData.components.map((c) => c.value));
+  for (const { source, control } of allControls) {
+    if (!control.applicability) continue;
+    const referenced = collectComponentValues(control.applicability.when);
+    referenced.forEach((value, i) => {
+      if (!knownComponents.has(value)) {
+        violations.push({
+          code: "CATALOG_UNKNOWN_COMPONENT_VALUE",
+          severity: "error",
+          source,
+          entityId: control.controlId,
+          path: `applicability.when (components fact, occurrence ${i})`,
+          message: `applicability.when references components value "${value}", which is not in core/profile-taxonomy.json's canonical component list`,
+        });
+      }
+    });
   }
 
   // criticality-weights-sum

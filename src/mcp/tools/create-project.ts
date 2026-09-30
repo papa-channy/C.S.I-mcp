@@ -15,7 +15,14 @@ export const createProjectInputShape = {
     databases: z.array(z.string()).optional(),
     cloud: z.array(z.string()).optional(),
   }),
-  components: z.array(z.string().min(1)).optional(),
+  components: z
+    .array(z.string().min(1))
+    .optional()
+    .describe(
+      "Free-form list of this project's architectural components. Only these 8 values currently drive any " +
+        "control's applicability: backend_api, browser_frontend, ci_pipeline, container_image, database, " +
+        "file_storage, mobile_app, release_pipeline — other values are accepted but purely informational."
+    ),
   identities: z.array(z.enum(["anonymous", "user", "paid_user", "partner", "operator", "administrator", "super_administrator", "service_account", "machine_identity"])).optional(),
   dataClasses: z.array(z.enum(["D0", "D1", "D2", "D3"])).optional(),
 };

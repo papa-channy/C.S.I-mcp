@@ -6,5 +6,15 @@
     { "id": "D1", "name": "Internal", "description": "For internal organizational use." },
     { "id": "D2", "name": "Confidential", "description": "Disclosure causes business or personal harm.", "examples": ["personal_data", "contract_information", "internal_documents"] },
     { "id": "D3", "name": "Restricted", "description": "Disclosure causes severe harm.", "examples": ["credentials", "financial_information", "medical_information", "secrets", "api_keys", "encryption_keys", "cash_equivalent_assets", "critical_trade_secrets"] }
+  ],
+  "components": [
+    { "value": "backend_api", "description": "A server-side API or backend service that processes requests and handles business logic (REST/GraphQL/RPC service)." },
+    { "value": "browser_frontend", "description": "A browser-rendered client (SPA or server-rendered pages with client-side JS) that renders user-controlled content." },
+    { "value": "ci_pipeline", "description": "The CI system that builds and tests the project on commits/PRs (e.g. GitHub Actions, GitLab CI) and has access to build-time secrets." },
+    { "value": "container_image", "description": "A container image (Docker/OCI) built and published as one of the project's deployment artifacts." },
+    { "value": "database", "description": "A persistent datastore (relational or NoSQL) storing application or user data." },
+    { "value": "file_storage", "description": "Object or file storage (local disk, S3-compatible, etc.) holding uploaded or generated files." },
+    { "value": "mobile_app", "description": "A native or hybrid mobile client (iOS/Android)." },
+    { "value": "release_pipeline", "description": "The pipeline that packages and publishes release artifacts (binaries, packages, images) for distribution." }
   ]
 }

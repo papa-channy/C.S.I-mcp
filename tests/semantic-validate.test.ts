@@ -27,7 +27,8 @@ function baseControl(overrides: Record<string, unknown> = {}): Record<string, un
 function writeCatalog(
   controlsFiles: Record<string, unknown[]>,
   threats: { threatId: string }[] = [{ threatId: "THR-TEST-001" }],
-  weights: Record<string, number> = { a: 0.5, b: 0.5 }
+  weights: Record<string, number> = { a: 0.5, b: 0.5 },
+  components: { value: string }[] = [{ value: "backend_api" }, { value: "browser_frontend" }]
 ): string {
   const dir = mkdtempSync(join(tmpdir(), "csi-mcp-catalog-"));
   tempDirs.push(dir);
@@ -39,6 +40,7 @@ function writeCatalog(
   }
   writeFileSync(join(dir, "catalogs", "threats.json"), JSON.stringify({ threats }));
   writeFileSync(join(dir, "core", "criticality-weights.json"), JSON.stringify({ weights }));
+  writeFileSync(join(dir, "core", "profile-taxonomy.json"), JSON.stringify({ components }));
   return dir;
 }
 
@@ -140,6 +142,37 @@ describe("validateCatalog", () => {
     });
     const violations = validateCatalog(dir);
     expect(violations.some((v) => v.code === "CATALOG_ASSURANCE_NOT_CUMULATIVE")).toBe(true);
+  });
+
+  it("catches an applicability rule referencing an unrecognized components value", () => {
+    const dir = writeCatalog({
+      "a.json": [
+        baseControl({
+          applicability: { when: { fact: "components", operator: "contains", value: "typo_component" } },
+        }),
+      ],
+    });
+    const violations = validateCatalog(dir);
+    expect(violations.some((v) => v.code === "CATALOG_UNKNOWN_COMPONENT_VALUE")).toBe(true);
+  });
+
+  it("accepts an applicability rule whose components values are all in the taxonomy, including nested all/any and intersects arrays", () => {
+    const dir = writeCatalog({
+      "a.json": [
+        baseControl({
+          applicability: {
+            when: {
+              all: [
+                { fact: "components", operator: "contains", value: "backend_api" },
+                { any: [{ fact: "components", operator: "intersects", value: ["browser_frontend", "backend_api"] }] },
+              ],
+            },
+          },
+        }),
+      ],
+    });
+    const violations = validateCatalog(dir);
+    expect(violations.some((v) => v.code === "CATALOG_UNKNOWN_COMPONENT_VALUE")).toBe(false);
   });
 
   it("catches criticality weights that don't sum to 1.0", () => {

@@ -33,4 +33,20 @@ describe("core/profile-taxonomy.json", () => {
     expect(data.identities.length).toBeGreaterThan(0);
     expect(data.dataClassification.map((d) => d.id)).toEqual(["D0", "D1", "D2", "D3"]);
   });
+
+  it("has the 8 canonical components referenced by real controls' applicability rules", () => {
+    const data = loadJson<{ components: { value: string }[] }>("data/core/profile-taxonomy.json");
+    expect(data.components.map((c) => c.value).sort()).toEqual(
+      [
+        "backend_api",
+        "browser_frontend",
+        "ci_pipeline",
+        "container_image",
+        "database",
+        "file_storage",
+        "mobile_app",
+        "release_pipeline",
+      ].sort()
+    );
+  });
 });
