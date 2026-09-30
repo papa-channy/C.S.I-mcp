@@ -57,8 +57,8 @@ export interface RecordFindingInput {
 export interface ListFindingsFilters {
   status?: Finding["status"];
   controlId?: string;
-  minPriority?: number;
-  minCriticality?: number;
+  maxPriorityIndex?: number;
+  maxCriticalityIndex?: number;
 }
 
 const SEVERITY_THRESHOLDS: { min: number; severity: Finding["severity"] }[] = [
@@ -126,8 +126,9 @@ export class AssessmentService {
     if (filters.catalogStatus) selected = selected.filter((c) => c.status === filters.catalogStatus);
 
     const withComputed = selected.map((c) => {
-      const applicability = evaluateApplicability(c, project.profile).autoResult;
+      const autoResult = evaluateApplicability(c, project.profile).autoResult;
       const assessment = assessmentByControl.get(c.controlId);
+      const applicability: Verdict = assessment ? (assessment.applicability.finalResult as Verdict) : autoResult;
       const assessmentStatus: AssessmentStatus | "NOT_ASSESSED" = assessment ? assessment.status : "NOT_ASSESSED";
       const findingCount = findings.filter((f) => f.status !== "resolved" && f.status !== "false_positive" && f.controlIds.includes(c.controlId)).length;
       return { control: c, applicability, assessmentStatus, findingCount };
@@ -137,7 +138,7 @@ export class AssessmentService {
       .filter((c) => !filters.applicability || c.applicability === filters.applicability)
       .filter((c) => !filters.assessmentStatus || c.assessmentStatus === filters.assessmentStatus);
 
-    if (filters.detail === "full" || filters.controlIds) {
+    if (filters.detail === "full") {
       return filtered.map((c) => c.control);
     }
     return filtered.map((c) => ({
@@ -154,6 +155,9 @@ export class AssessmentService {
     }
     const project = await withNotFound(
       this.repository.getProject(input.projectId), `Project "${input.projectId}" not found`, { projectId: input.projectId }
+    );
+    await withNotFound(
+      this.repository.getRun(input.projectId, input.runId), `Run "${input.runId}" not found`, { projectId: input.projectId, runId: input.runId }
     );
 
     if (input.status === "PASS" && input.evidence.length === 0) {
@@ -195,6 +199,9 @@ export class AssessmentService {
   }
 
   async recordFinding(input: RecordFindingInput): Promise<Finding> {
+    await withNotFound(
+      this.repository.getProject(input.projectId), `Project "${input.projectId}" not found`, { projectId: input.projectId }
+    );
     const controls = await this.repository.getControls();
     const knownIds = new Set(controls.map((c) => c.controlId));
     const unknown = input.controlIds.filter((id) => !knownIds.has(id));
@@ -229,11 +236,14 @@ export class AssessmentService {
   }
 
   async listFindings(projectId: string, filters: ListFindingsFilters = {}): Promise<Finding[]> {
+    await withNotFound(
+      this.repository.getProject(projectId), `Project "${projectId}" not found`, { projectId }
+    );
     const findings = await this.repository.getFindings(projectId);
     return findings
       .filter((f) => !filters.status || f.status === filters.status)
       .filter((f) => !filters.controlId || f.controlIds.includes(filters.controlId!))
-      .filter((f) => filters.minPriority === undefined || f.priority.index >= filters.minPriority!)
-      .filter((f) => filters.minCriticality === undefined || f.criticality.index >= filters.minCriticality!);
+      .filter((f) => filters.maxPriorityIndex === undefined || f.priority.index <= filters.maxPriorityIndex!)
+      .filter((f) => filters.maxCriticalityIndex === undefined || f.criticality.index <= filters.maxCriticalityIndex!);
   }
 }

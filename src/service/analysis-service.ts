@@ -9,6 +9,7 @@ export class AnalysisService {
   constructor(private readonly repository: SecurityRepository) {}
 
   async getScore(projectId: string): Promise<Score> {
+    await withNotFound(this.repository.getProject(projectId), `Project "${projectId}" not found`, { projectId });
     const [assessments, findings, controls] = await Promise.all([
       this.repository.getControlAssessments(projectId),
       this.repository.getFindings(projectId),

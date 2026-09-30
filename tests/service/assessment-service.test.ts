@@ -21,6 +21,10 @@ async function makeProjectRepo() {
     projectId: "PRJ-1", name: "Demo", owner: "alice", createdAt: FIXED_NOW, profileRevision: 3,
     profile: { securityLevel: "SVL-2", exposure: ["internet_public"], features: { authentication: true }, technologies: {} },
   });
+  await repo.saveRun({
+    runId: "RUN-1", projectId: "PRJ-1", planId: "PLAN-DEFAULT-PRJ-1", planVersion: 1, profileRevision: 3,
+    catalogVersion: "9.9.9", batchIds: [], status: "running", startedAt: FIXED_NOW, completedAt: null,
+  });
   return repo;
 }
 
@@ -103,6 +107,44 @@ describe("AssessmentService.listControls", () => {
     const service = new AssessmentService(repo, () => FIXED_NOW);
     const [full] = await service.listControls("PRJ-1", { detail: "full" });
     expect(full).toMatchObject({ controlId: "APP-INPUT-VAL-001", version: 1, applicability: expect.any(Object) });
+  });
+
+  it("returns ControlSummary-shaped objects when controlIds is set but detail is not 'full'", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control(), control({ controlId: "OPS-BACKUP-TEST-001", domain: "operations" })];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const result = await service.listControls("PRJ-1", { controlIds: ["APP-INPUT-VAL-001"] });
+    expect(result).toHaveLength(1);
+    const [summary] = result;
+    expect(summary).toMatchObject({ controlId: "APP-INPUT-VAL-001", assessmentStatus: "NOT_ASSESSED" });
+    expect(summary).not.toHaveProperty("version");
+  });
+
+  it("returns full Control objects, narrowed by controlIds, when detail is explicitly 'full'", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control(), control({ controlId: "OPS-BACKUP-TEST-001", domain: "operations" })];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const result = await service.listControls("PRJ-1", { controlIds: ["APP-INPUT-VAL-001"], detail: "full" });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ controlId: "APP-INPUT-VAL-001", version: 1 });
+  });
+
+  it("reports the manual_override finalResult as applicability instead of the recomputed autoResult", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    await repo.saveControlAssessment({
+      assessmentId: "A-1", projectId: "PRJ-1", controlId: "APP-INPUT-VAL-001", controlVersion: 1,
+      applicability: { autoResult: "applicable", finalResult: "not_applicable", matchedRules: [], source: "manual_override", reason: "decommissioned" },
+      status: "N/A", evidenceIds: [], findingIds: [], riskAcceptanceId: null,
+      owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: FIXED_NOW, nextReviewAt: null, notes: "decommissioned",
+    });
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const [summary] = await service.listControls("PRJ-1");
+    expect(summary.applicability).toBe("not_applicable");
+
+    const filtered = await service.listControls("PRJ-1", { applicability: "not_applicable" });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].controlId).toBe("APP-INPUT-VAL-001");
   });
 });
 
@@ -195,6 +237,15 @@ describe("AssessmentService.recordAssessment", () => {
     const service = new AssessmentService(repo, () => FIXED_NOW);
     await expect(service.recordAssessment({
       projectId: "PRJ-1", runId: "RUN-1", controlId: "NOPE-001", status: "NOT_TESTED", evidence: [],
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("throws NOT_FOUND for a runId that was never created via startAssessmentRun", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-BOGUS", controlId: "APP-INPUT-VAL-001", status: "NOT_TESTED", evidence: [],
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
@@ -294,6 +345,17 @@ describe("AssessmentService.recordFinding", () => {
       priorityIndex: 2, priorityRationale: "r",
     })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
+
+  it("throws NOT_FOUND for an unknown projectId", async () => {
+    const repo = new FakeRepository();
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordFinding({
+      projectId: "nope", controlIds: ["APP-INPUT-VAL-001"], title: "x", attackScenario: "y",
+      severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 0, detectionDifficulty: 0 },
+      priorityIndex: 0, priorityRationale: "r",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
 });
 
 describe("AssessmentService.listFindings", () => {
@@ -313,5 +375,38 @@ describe("AssessmentService.listFindings", () => {
     expect(open).toHaveLength(1);
     const resolved = await service.listFindings("PRJ-1", { status: "resolved" });
     expect(resolved).toHaveLength(0);
+  });
+
+  it("throws NOT_FOUND for an unknown projectId", async () => {
+    const repo = new FakeRepository();
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.listFindings("nope")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("maxPriorityIndex/maxCriticalityIndex return findings at or below the given index (more urgent/severe), not above it", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    // Most urgent/severe: priorityIndex 0, low severity factors so criticality.index stays low too.
+    const urgent = await service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "urgent", attackScenario: "y",
+      severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 2, detectionDifficulty: 0 },
+      priorityIndex: 0, priorityRationale: "r",
+    });
+    // Least urgent/severe: high priorityIndex and high severity factors (criticality.index high).
+    await service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "not urgent", attackScenario: "y",
+      severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
+      priorityIndex: 9, priorityRationale: "r", priorityOverrideReason: "r",
+    });
+
+    const mostUrgent = await service.listFindings("PRJ-1", { maxPriorityIndex: 0 });
+    expect(mostUrgent).toHaveLength(1);
+    expect(mostUrgent[0].findingId).toBe(urgent.findingId);
+
+    const lowSeverity = await service.listFindings("PRJ-1", { maxCriticalityIndex: urgent.criticality.index });
+    expect(lowSeverity).toHaveLength(1);
+    expect(lowSeverity[0].findingId).toBe(urgent.findingId);
   });
 });

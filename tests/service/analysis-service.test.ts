@@ -40,6 +40,12 @@ describe("AnalysisService.getScore", () => {
     await makeProject(repo, "SVL-2");
     await expect(new AnalysisService(repo).getScore("PRJ-1")).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
+
+  it("throws NOT_FOUND for an unknown projectId, distinct from the zero-assessments precondition failure", async () => {
+    const repo = new FakeRepository();
+    setScoreModel(repo);
+    await expect(new AnalysisService(repo).getScore("nope")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
 });
 
 describe("AnalysisService.evaluateRelease", () => {
