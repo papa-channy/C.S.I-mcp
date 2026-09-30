@@ -17,6 +17,12 @@ async function makeConnectedClient() {
     projectId: "PRJ-1", name: "Demo", owner: "alice", createdAt: NOW, profileRevision: 1,
     profile: { securityLevel: "SVL-3", exposure: ["internet_public"], features: {}, technologies: {} },
   });
+  // No ControlAssessment records for this project, so calculateScore's zero-denominator
+  // guard fires — used to exercise a genuine PRECONDITION_FAILED at the tool layer.
+  await repo.saveProject({
+    projectId: "PRJ-EMPTY", name: "Empty", owner: "alice", createdAt: NOW, profileRevision: 1,
+    profile: { securityLevel: "SVL-3", exposure: ["internet_public"], features: {}, technologies: {} },
+  });
   repo.scoreModel = { modelId: "USSVS-SCORE-DEFAULT", version: "1.0.0", statusWeights: { PASS: 1.0, PARTIAL: 0.5, FAIL: 0, NOT_TESTED: 0 }, excludedStatuses: ["N/A", "ACCEPTED_RISK"] };
   repo.criticalityFormula = {
     formulaId: "CRIT-DEFAULT", version: "1.0.0", scaleMax: 9,
@@ -56,6 +62,13 @@ describe("analysis and report tools", () => {
     const { client } = await makeConnectedClient();
     const result = await client.callTool({ name: "get_score", arguments: { projectId: "PRJ-1" } });
     expect((result.structuredContent as any).overallScore).toBe(100);
+  });
+
+  it("get_score on a project with zero ControlAssessment records surfaces a genuine PRECONDITION_FAILED", async () => {
+    const { client } = await makeConnectedClient();
+    const result = await client.callTool({ name: "get_score", arguments: { projectId: "PRJ-EMPTY" } });
+    expect(result.isError).toBe(true);
+    expect((result.structuredContent as any).code).toBe("PRECONDITION_FAILED");
   });
 
   it("evaluate_release takes only projectId — no securityLevel field in its input schema", async () => {
