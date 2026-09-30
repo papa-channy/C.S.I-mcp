@@ -197,4 +197,30 @@ describe("AssessmentService.recordAssessment", () => {
       projectId: "PRJ-1", runId: "RUN-1", controlId: "NOPE-001", status: "NOT_TESTED", evidence: [],
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("generates sequential evidenceIds across multiple recordAssessment calls in the same project", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control(), control({ controlId: "APP-AUTH-MULTI-FACTOR-001" })];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+
+    // First call: record assessment for control 1 with evidence
+    const assessment1 = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/validation.test.ts" }],
+    });
+    expect(assessment1.evidenceIds).toEqual(["EVD-001"]);
+
+    // Second call: record assessment for control 2 with evidence (same project)
+    const assessment2 = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-AUTH-MULTI-FACTOR-001", status: "PASS",
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/auth.test.ts" }],
+    });
+    expect(assessment2.evidenceIds).toEqual(["EVD-002"]);
+
+    // Verify both evidence records persisted with correct IDs
+    const allEvidence = await repo.getEvidence("PRJ-1");
+    expect(allEvidence).toHaveLength(2);
+    expect(allEvidence[0].evidenceId).toBe("EVD-001");
+    expect(allEvidence[1].evidenceId).toBe("EVD-002");
+  });
 });
