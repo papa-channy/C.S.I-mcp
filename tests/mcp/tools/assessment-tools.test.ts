@@ -59,6 +59,17 @@ describe("assessment tools", () => {
     expect((result.structuredContent as any).controls[0].assessmentStatus).toBe("NOT_ASSESSED");
   });
 
+  it("list_controls returns full catalog records when detail is 'full'", async () => {
+    const { client } = await makeConnectedClient();
+    const result = await client.callTool({ name: "list_controls", arguments: { projectId: "PRJ-1", detail: "full" } });
+    expect(result.isError).toBeFalsy();
+    const controls = (result.structuredContent as any).controls;
+    expect(controls).toHaveLength(1);
+    expect(controls[0].applicability).toEqual({ when: expect.any(Object) });
+    expect(controls[0].version).toBe(1);
+    expect(controls[0].status).toBe("active");
+  });
+
   it("record_assessment rejects PASS with no evidence as a VALIDATION_ERROR", async () => {
     const { client } = await makeConnectedClient();
     const run = await client.callTool({ name: "start_assessment_run", arguments: { projectId: "PRJ-1" } });

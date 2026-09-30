@@ -24,10 +24,13 @@ export function registerListControlsTool(server: McpServer, service: AssessmentS
     async ({ projectId, ...filters }) => {
       try {
         // The service's listControls is overloaded on filters.detail ("summary" vs "full") to pick
-        // its return type. Here `detail` arrives as a runtime-determined "summary" | "full" | undefined,
-        // so no single overload matches at compile time; we don't need the return-type narrowing here
-        // anyway since both shapes are just serialized into structuredContent below.
-        const controls = await service.listControls(projectId, filters as ListControlsFilters & { detail?: "summary" });
+        // its return type. Branch on the actual runtime value (via a plain local, so TS control-flow
+        // narrowing applies) so each call site resolves to its own correct overload, rather than
+        // casting filters to force a single overload regardless of the real detail value.
+        const { detail, ...rest } = filters;
+        const controls = detail === "full"
+          ? await service.listControls(projectId, { ...rest, detail: "full" as const })
+          : await service.listControls(projectId, { ...rest, detail });
         return {
           content: [{ type: "text" as const, text: `${controls.length} control(s).` }],
           structuredContent: { controls },
