@@ -1,9 +1,10 @@
-import type { AssessmentRun, Control, ControlAssessment, Evidence, EvidenceType, SecurityRepository } from "../core/repository.js";
+import type { AssessmentRun, Control, ControlAssessment, Evidence, EvidenceType, SecurityRepository, Finding } from "../core/repository.js";
 import type { AssessmentPlan } from "../core/plan-expander.js";
 import { evaluateApplicability, type Verdict } from "../core/applicability.js";
 import { withNotFound, ServiceError } from "./errors.js";
 import { generateUuid, nextSequentialId } from "./ids.js";
-import { AGENT_IDENTITY } from "./constants.js";
+import { calculateCriticality, type SeverityFactors } from "../core/criticality.js";
+import { AGENT_IDENTITY, CRITICALITY_FORMULA_ID } from "./constants.js";
 
 export interface StartAssessmentRunResult {
   runId: string;
@@ -40,6 +41,36 @@ export interface RecordAssessmentInput {
   notes?: string;
   riskAcceptanceId?: string;
   applicabilityOverride?: { result: Verdict; reason: string };
+}
+
+export interface RecordFindingInput {
+  projectId: string;
+  controlIds: string[];
+  title: string;
+  attackScenario: string;
+  severityFactors: SeverityFactors;
+  priorityIndex: number;
+  priorityRationale: string;
+  priorityOverrideReason?: string;
+}
+
+export interface ListFindingsFilters {
+  status?: Finding["status"];
+  controlId?: string;
+  minPriority?: number;
+  minCriticality?: number;
+}
+
+const SEVERITY_THRESHOLDS: { min: number; severity: Finding["severity"] }[] = [
+  { min: 8, severity: "critical" },
+  { min: 6, severity: "high" },
+  { min: 4, severity: "medium" },
+  { min: 2, severity: "low" },
+  { min: 0, severity: "informational" },
+];
+
+function deriveSeverity(criticalityIndex: number): Finding["severity"] {
+  return SEVERITY_THRESHOLDS.find((t) => criticalityIndex >= t.min)!.severity;
 }
 
 function defaultPlanId(projectId: string): string {
@@ -161,5 +192,48 @@ export class AssessmentService {
     };
     await this.repository.saveControlAssessment(assessment);
     return assessment;
+  }
+
+  async recordFinding(input: RecordFindingInput): Promise<Finding> {
+    const controls = await this.repository.getControls();
+    const knownIds = new Set(controls.map((c) => c.controlId));
+    const unknown = input.controlIds.filter((id) => !knownIds.has(id));
+    if (unknown.length > 0) {
+      throw new ServiceError("VALIDATION_ERROR", `Unknown controlIds: ${unknown.join(", ")}`, { controlIds: unknown });
+    }
+
+    const formula = await this.repository.getCriticalityFormula(CRITICALITY_FORMULA_ID);
+    const criticality = calculateCriticality(input.severityFactors, formula, this.now);
+    const severity = deriveSeverity(criticality.index);
+
+    if (criticality.index >= 8 && input.priorityIndex >= 2 && !input.priorityOverrideReason) {
+      throw new ServiceError(
+        "VALIDATION_ERROR", "priorityOverrideReason is required when criticality.index >= 8 and priorityIndex >= 2",
+        { criticalityIndex: criticality.index, priorityIndex: input.priorityIndex }
+      );
+    }
+
+    const existingFindings = await this.repository.getFindings(input.projectId);
+    const finding: Finding = {
+      findingId: nextSequentialId("FND", existingFindings.length),
+      title: input.title, controlIds: input.controlIds, attackScenario: input.attackScenario,
+      impact: input.severityFactors.impact, exploitability: input.severityFactors.exploitability,
+      exposure: input.severityFactors.exposure, privilegeRequired: input.severityFactors.privilegeRequired,
+      detectionDifficulty: input.severityFactors.detectionDifficulty, criticality,
+      priority: { index: input.priorityIndex, source: "agent", rationale: input.priorityRationale, assignedBy: AGENT_IDENTITY, assignedAt: this.now() },
+      ...(input.priorityOverrideReason !== undefined ? { priorityOverrideReason: input.priorityOverrideReason } : {}),
+      severity, status: "open",
+    };
+    await this.repository.saveFinding(input.projectId, finding);
+    return finding;
+  }
+
+  async listFindings(projectId: string, filters: ListFindingsFilters = {}): Promise<Finding[]> {
+    const findings = await this.repository.getFindings(projectId);
+    return findings
+      .filter((f) => !filters.status || f.status === filters.status)
+      .filter((f) => !filters.controlId || f.controlIds.includes(filters.controlId!))
+      .filter((f) => filters.minPriority === undefined || f.priority.index >= filters.minPriority!)
+      .filter((f) => filters.minCriticality === undefined || f.criticality.index >= filters.minCriticality!);
   }
 }

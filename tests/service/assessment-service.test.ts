@@ -224,3 +224,94 @@ describe("AssessmentService.recordAssessment", () => {
     expect(allEvidence[1].evidenceId).toBe("EVD-002");
   });
 });
+
+function setCriticalityFormula(repo: FakeRepository) {
+  repo.criticalityFormula = {
+    formulaId: "CRIT-DEFAULT", version: "1.0.0", scaleMax: 9,
+    directions: { impact: "higher_is_worse", exploitability: "higher_is_worse", exposure: "higher_is_worse", privilegeRequired: "lower_is_worse", detectionDifficulty: "higher_is_worse" },
+    ranges: { impact: { min: 1, max: 5 }, exploitability: { min: 1, max: 5 }, exposure: { min: 1, max: 3 }, privilegeRequired: { min: 0, max: 2 }, detectionDifficulty: { min: 0, max: 2 } },
+    weights: { impact: 0.35, exploitability: 0.25, exposure: 0.15, privilegeRequired: 0.15, detectionDifficulty: 0.10 },
+    rounding: "round",
+  };
+}
+
+describe("AssessmentService.recordFinding", () => {
+  it("computes criticality and severity, and assigns a sequential findingId", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const finding = await service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "SQLi", attackScenario: "attacker injects",
+      severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
+      priorityIndex: 0, priorityRationale: "worst case",
+    });
+    expect(finding.findingId).toBe("FND-001");
+    expect(finding.criticality.index).toBeGreaterThanOrEqual(8);
+    expect(finding.severity).toBe("critical");
+    expect(finding.status).toBe("open");
+    expect(finding.priority).toMatchObject({ index: 0, source: "agent", assignedBy: "csi-mcp-agent" });
+  });
+
+  it("derives severity at each threshold boundary", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const cases: { factors: { impact: number; exploitability: number; exposure: number; privilegeRequired: number; detectionDifficulty: number }; expected: string }[] = [
+      { factors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 }, expected: "critical" },
+      { factors: { impact: 3, exploitability: 3, exposure: 1, privilegeRequired: 1, detectionDifficulty: 1 }, expected: "medium" },
+      { factors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 2, detectionDifficulty: 0 }, expected: "informational" },
+    ];
+    for (const { factors, expected } of cases) {
+      const finding = await service.recordFinding({
+        projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", attackScenario: "y",
+        severityFactors: factors, priorityIndex: 9, priorityRationale: "r", priorityOverrideReason: "r",
+      });
+      expect(finding.severity).toBe(expected);
+    }
+  });
+
+  it("rejects an unknown controlId", async () => {
+    const repo = await makeProjectRepo();
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["NOPE-001"], title: "x", attackScenario: "y",
+      severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 0, detectionDifficulty: 0 },
+      priorityIndex: 0, priorityRationale: "r",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("requires priorityOverrideReason when criticality.index >= 8 and priorityIndex >= 2", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", attackScenario: "y",
+      severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
+      priorityIndex: 2, priorityRationale: "r",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+});
+
+describe("AssessmentService.listFindings", () => {
+  it("returns all findings for a project, optionally filtered by status", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "A", attackScenario: "y",
+      severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 0, detectionDifficulty: 0 },
+      priorityIndex: 0, priorityRationale: "r",
+    });
+    const all = await service.listFindings("PRJ-1");
+    expect(all).toHaveLength(1);
+    const open = await service.listFindings("PRJ-1", { status: "open" });
+    expect(open).toHaveLength(1);
+    const resolved = await service.listFindings("PRJ-1", { status: "resolved" });
+    expect(resolved).toHaveLength(0);
+  });
+});
