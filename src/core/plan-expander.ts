@@ -15,10 +15,13 @@ export interface GroupOverride {
 
 export interface AssessmentPlan {
   planId: string;
+  version?: number;
+  projectId?: string;
   selection?: AssessmentPlanSelection;
   groupBy: "domain" | "subdomain" | "layer" | "group" | "controlId";
   defaultMaxParallelAgents: number;
   groupOverrides?: GroupOverride[];
+  createdAt?: string;
 }
 
 export interface PlanControl {

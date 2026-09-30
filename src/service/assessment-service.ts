@@ -10,7 +10,7 @@ export interface StartAssessmentRunResult {
 }
 
 export type CatalogStatus = "draft" | "active" | "deprecated" | "retired";
-export type AssessmentStatus = "PASS" | "FAIL" | "PARTIAL" | "N/A" | "NOT_TESTED" | "ACCEPTED_RISK";
+export type AssessmentStatus = ControlAssessment["status"];
 
 export interface ListControlsFilters {
   domain?: string;
@@ -63,6 +63,8 @@ export class AssessmentService {
     return { runId, startedAt };
   }
 
+  async listControls(projectId: string, filters?: ListControlsFilters & { detail?: "summary" }): Promise<ControlSummary[]>;
+  async listControls(projectId: string, filters: ListControlsFilters & { detail: "full" }): Promise<Control[]>;
   async listControls(projectId: string, filters: ListControlsFilters = {}): Promise<(ControlSummary | Control)[]> {
     const project = await withNotFound(this.repository.getProject(projectId), `Project "${projectId}" not found`, { projectId });
     const [controls, assessments, findings] = await Promise.all([
@@ -83,7 +85,7 @@ export class AssessmentService {
     const withComputed = selected.map((c) => {
       const applicability = evaluateApplicability(c, project.profile).autoResult;
       const assessment = assessmentByControl.get(c.controlId);
-      const assessmentStatus: AssessmentStatus | "NOT_ASSESSED" = assessment ? (assessment.status as AssessmentStatus) : "NOT_ASSESSED";
+      const assessmentStatus: AssessmentStatus | "NOT_ASSESSED" = assessment ? assessment.status : "NOT_ASSESSED";
       const findingCount = findings.filter((f) => f.status !== "resolved" && f.status !== "false_positive" && f.controlIds.includes(c.controlId)).length;
       return { control: c, applicability, assessmentStatus, findingCount };
     });
