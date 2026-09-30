@@ -1,11 +1,12 @@
 # C.S.I-mcp — Progress
 
-Security Check MCP: a JSON data foundation (schemas + reference data) for a
-future MCP server that runs security reviews against real projects, scores
-them, and produces prioritized, reproducible reports. This document tracks
-what's built, how it's organized, and what's left.
+Security Check MCP: an MCP server, backed by a JSON data foundation
+(schemas + reference data), that an AI agent can hold a conversation
+through to run security reviews against real projects, score them, and
+produce prioritized, reproducible reports. This document tracks what's
+built, how it's organized, and what's left.
 
-Last updated: 2026-09-28
+Last updated: 2026-09-30
 
 ## Status at a glance
 
@@ -24,14 +25,26 @@ Last updated: 2026-09-28
   last of the originally-planned control domains — see "Key design
   decisions" below for how its controls stay applicable regardless of a
   project's technical profile.
-- **Test suite:** 244/244 passing, 38 files (`npm test`).
+- **Test suite:** 321/321 passing, 48 files (`npm test`).
 - **Core Engine (pure-function computation layer):** done, merged — see
   `docs/superpowers/specs/2026-09-28-core-engine-design.md` and
   `docs/superpowers/plans/2026-09-28-core-engine-implementation.md`. 7
   modules under `src/core/`: `applicability.ts`, `criticality.ts`,
   `score.ts`, `plan-expander.ts`, `release-evaluator.ts`,
   `report-builder.ts`, `repository.ts`.
-- **Server implementation (MCP tools, runtime formula computation, database):** the Core Engine's pure-function computation layer is done (above); the MCP tool/handler layer and agent orchestration are still not started.
+- **MCP server (service layer + tool/handler layer):** done, merged — see
+  `docs/superpowers/specs/2026-09-30-mcp-server-design.md` and
+  `docs/superpowers/plans/2026-09-30-mcp-server-implementation.md`. Adds
+  `src/service/` (`ProjectService`, `AssessmentService`, `AnalysisService`,
+  `ReportService` + small `errors`/`ids`/`constants`/`severity` utilities)
+  and `src/mcp/` (`server.ts` + 11 MCP tools) on top of the Core Engine.
+  The server is now runnable end-to-end: `npm run build && npm start`
+  serves 11 tools over stdio (`create_project`, `get_project`,
+  `update_project_profile`, `start_assessment_run`, `list_controls`,
+  `record_assessment`, `record_finding`, `list_findings`, `get_score`,
+  `evaluate_release`, `generate_report`). Agent orchestration
+  (`expandPlan`/batch dispatch) remains out of scope — deferred to a later
+  phase, per the design spec.
 - **Control content:** 48 controls across 8 domain files (`identity-access`,
   `appsec`, `infrastructure`, `operations`, `platform-specific`,
   `data-crypto`, `devops-supply-chain`, `governance`) — all 8 originally
@@ -71,8 +84,22 @@ data/
   process/                   # verification flow, release gates, incident
                               # response, exception policy, metrics,
                               # deliverables (6 files)
+  projects/                  # project-instance data, one dir per projectId,
+                              # created at runtime by the MCP server (empty
+                              # in a fresh checkout)
+  plans/                     # flat AssessmentPlan-per-file store, created
+                              # at runtime (the MCP server auto-creates one
+                              # minimal default plan per project)
 src/validate.ts               # loadJson / createAjv / compileSchemaFromFile
-tests/                        # one *.test.ts per schema/data concern
+src/core/                     # pure/near-pure computation + SecurityRepository
+                              # (Core Engine — see "Schemas" section above it)
+src/service/                  # Application/service layer: ProjectService,
+                              # AssessmentService, AnalysisService,
+                              # ReportService + errors/ids/constants/severity
+src/mcp/                      # MCP tool/handler layer: server.ts + 11 tools
+                              # under src/mcp/tools/
+tests/                        # one *.test.ts per schema/data/core/service/
+                              # mcp-tool concern, plus tests/integration/
 docs/superpowers/specs/       # design specs (the "why")
 docs/superpowers/plans/       # implementation plans (the "how, task by task")
 ```
@@ -163,7 +190,12 @@ docs/superpowers/plans/       # implementation plans (the "how, task by task")
 
 ```bash
 npm install
-npm test        # expect: 38 files, 244 tests, all passing
+npm test         # expect: 48 files, 321 tests, all passing
+npx tsc --noEmit # expect: clean (vitest alone does NOT type-check —
+                  # this caught real bugs during MCP server development
+                  # that npm test missed; always run both)
+npm run build    # compiles src/ to dist/ (tsconfig.build.json, rootDir: src)
+npm start        # runs the built MCP server over stdio (dist/mcp/server.js)
 ```
 
 `data/manifest.json` is the single source of truth for what's registered —
@@ -207,6 +239,28 @@ deliberately unsorted fixture.
 - 4 of the 48 real controls have a bare leaf condition (not wrapped in `all`/`any`) at the root of their `applicability.when` — for these, `evaluateApplicability`'s `matchedRules` is always `[]` even though a leaf did determine the verdict, so the explainability field is empty for exactly these 4 controls (the verdict itself is still correct).
 - No Ajv-based drift guard exists yet for the ~8 new TypeScript interfaces this plan added that restate frozen JSON Schemas (`Score`, `DomainScore`, `ProjectReport`, `ReleaseEvaluation`, etc.) — `tests/schema-drift.test.ts` covers 4 earlier shapes from Phase 2 but wasn't extended to these.
 
+## MCP server follow-up items (parked at final whole-branch review, not blocking)
+
+The final review actually ran the built server against a live temp data
+directory (not just read the code) and found — and a single fix wave
+resolved — 6 real cross-task bugs: 3 of 11 tools skipping `projectId`
+existence checks (worst case: `record_finding` silently wrote an orphaned
+finding for a nonexistent project), `record_assessment` accepting an
+unvalidated `runId`, `list_controls`'s overload type lying on the
+`controlIds` path, `list_controls` showing stale applicability after a
+manual override, and `list_findings`'s `minPriority`/`minCriticality`
+filters being inverted against the schema's 0-is-most-urgent scale (now
+`maxPriorityIndex`/`maxCriticalityIndex`). All 6 are fixed, tested, and
+merged. What's left, explicitly deferred rather than silently dropped:
+
+- No `outputSchema` is declared on any of the 11 tools, and no zod field carries `.describe()` — every handler needs an `as unknown as Record<string, unknown>` cast for `structuredContent` as a result, and an LLM caller has no machine-readable guidance on non-obvious semantics (the `[]`-vs-omitted three-valued patch fields, `severityFactors`' scales, the priority/criticality "lower is worse" direction). Real follow-up work, not a one-line fix — needs its own pass across all 11 tools.
+- `findingId`/`evidenceId` generation is `array.length + 1`, not `max(existing numeric suffix) + 1` — a hand-deleted record (the only way to resolve a Finding in this phase; see below) could produce a duplicate id. Fixing this means changing `nextSequentialId`'s signature (count → the actual id array) across `src/service/ids.ts` and its two call sites — deferred as a deliberately separate, larger change rather than folded into the final fix wave.
+- `src/mcp/server.ts`'s `main()` runs unconditionally at import time (no `import.meta.url` entry-point guard) — importing `buildServer` from a test connects a real `StdioServerTransport` to the importer's stdio. Nothing does this today (the integration test re-registers all 11 tools by hand instead), which also means `buildServer()`'s own tool registration is untested — a future dropped tool registration would be caught by nothing.
+- `AnalysisService.getScore`/`evaluateRelease` and `ReportService.generate` independently compute `Score`/`ReleaseEvaluation` (~25 duplicated lines) rather than sharing one pure `computeScore`/`computeRelease` function — this is intentional (each needs its own single-snapshot read to avoid `generate_report` observing different state than a separate `get_score` call), but nothing currently guards the two staying in sync if one changes. No test asserts `get_score`'s output equals `report.score` on identical data.
+- `withNotFound` (`src/service/errors.ts`) converts *any* rejection into `NOT_FOUND`, not just "the file doesn't exist" — a corrupt `project.json` or a permissions error would also read as "project not found," which could lead an agent to attempt creating a duplicate project instead of surfacing the real failure.
+- No Finding lifecycle tool exists beyond creation (no `update_finding`/`resolve_finding`) — by design, per the spec's explicit out-of-scope list; resolving a finding today means direct data editing.
+- An `AssessmentRun` is never marked `completed` — `start_assessment_run` sets `status: "running"` and nothing ever updates it, including `generate_report`, so every run in the data tree looks perpetually in-flight (schema-valid, but not semantically accurate).
+
 ## Next steps, in a reasonable order
 
 Two items previously listed here are now **done**: closing the Phase 2 gaps
@@ -228,22 +282,28 @@ previously flagged as blocking further control-content scaling:
 (5), `platform-specific` (5), `data-crypto` (5), `devops-supply-chain`
 (5), `governance` (4) — 48 controls total. This was Phase 1's own
 disclosed follow-up item; nothing further is planned here unless new
-domains are identified later. What remains is making any of this
-catalog data *executable*:
+domains are identified later.
 
-### 1. Design and build the MCP server itself
-Nothing in `data/` is executable yet — every formula, applicability rule,
-and scoring model is documented data, not code. The server phase needs to:
-implement the Applicability Engine (evaluates a `ProjectProfile` against
-every Control's rule DSL), implement the criticality/score formulas
-documented in `data/core/criticality-weights.json` and
-`data/core/scoring-model.json`, implement `AssessmentPlan` → `AssessmentRun`
-→ `AssessmentBatch` expansion and agent dispatch, and implement
-`ProjectReport` generation. This is the largest remaining piece and
-depends on nothing above being finished first — it can start once the
-core schemas (already done) are considered stable.
+### Core Engine and MCP server are both done — the tool is executable end-to-end
+Every formula, applicability rule, and scoring model documented in `data/`
+now runs: `npm run build && npm start` serves all 11 MCP tools over stdio,
+backed by real `JsonRepository`-persisted project data.
 
-### 2. Plan the SQLite migration (explicitly deferred since Phase 1)
+### 1. Real-world validation (in progress)
+Run the MCP server against actual public open-source projects (confirmed
+public GitHub repos, live-operating websites) to produce a real security
+assessment and prioritized finding list — the first end-to-end proof this
+tool produces genuine security value, not just schema-valid output on
+synthetic test fixtures. Scope, target selection, and safety boundaries
+(source-level review vs. any form of live-site testing) to be defined
+before starting.
+
+### 2. Agent orchestration (explicitly deferred by the MCP server design spec)
+`expandPlan`/batch dispatch, multi-agent parallel assessment, retry/resume
+— a later phase, once the single-agent conversational flow has been
+validated against real projects (see item 1).
+
+### 3. Plan the SQLite migration (explicitly deferred since Phase 1)
 Both phases were written so this stays cheap: every entity is a flat
 record with small nested value-objects, no Control-in-Control nesting,
 and IDs that read naturally as foreign keys. Not urgent — revisit once
