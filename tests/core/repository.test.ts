@@ -69,7 +69,10 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
   });
 
   it("saveRun then reload round-trips the AssessmentRun", async () => {
-    const run: AssessmentRun = { runId: "RUN-1", projectId: "PRJ-1", status: "pending" };
+    const run: AssessmentRun = {
+      runId: "RUN-1", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "2.1.0", batchIds: [], status: "pending",
+    };
     await repo.saveRun(run);
     const reloaded = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "runs", "RUN-1.json")));
     expect(reloaded).toEqual(run);
@@ -96,7 +99,10 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
   });
 
   it("saveRun does not leave a .tmp-* file behind after a successful write", async () => {
-    await repo.saveRun({ runId: "RUN-1", projectId: "PRJ-1", status: "pending" });
+    await repo.saveRun({
+      runId: "RUN-1", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "2.1.0", batchIds: [], status: "pending",
+    });
     const files = readdirSync(join(dir, "projects", "PRJ-1", "runs"));
     expect(files).toEqual(["RUN-1.json"]);
   });

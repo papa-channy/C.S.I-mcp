@@ -76,6 +76,14 @@ export interface Finding {
 export interface AssessmentRun {
   runId: string;
   projectId: string;
+  planId: string;
+  planVersion: number;
+  profileRevision: number;
+  catalogVersion: string;
+  batchIds: string[];
+  status: "pending" | "running" | "completed" | "failed" | "partial";
+  startedAt?: string | null;
+  completedAt?: string | null;
   [key: string]: unknown;
 }
 

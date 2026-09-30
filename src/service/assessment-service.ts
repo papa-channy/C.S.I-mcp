@@ -56,7 +56,7 @@ export class AssessmentService {
     const runId = generateUuid();
     const startedAt = this.now();
     const run: AssessmentRun = {
-      runId, projectId, planId: plan.planId, planVersion: plan.version, profileRevision: project.profileRevision,
+      runId, projectId, planId: plan.planId, planVersion: plan.version ?? 1, profileRevision: project.profileRevision,
       catalogVersion, batchIds: [], status: "running", startedAt, completedAt: null,
     };
     await this.repository.saveRun(run);
