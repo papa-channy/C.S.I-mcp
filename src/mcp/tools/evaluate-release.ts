@@ -11,7 +11,16 @@ export const evaluateReleaseInputShape = { projectId: z.string().min(1) };
 export function registerEvaluateReleaseTool(server: McpServer, service: AnalysisService): void {
   server.registerTool(
     "evaluate_release",
-    { title: "Evaluate Release", description: "Evaluate gate-4 production-release readiness for a project.", inputSchema: evaluateReleaseInputShape },
+    {
+      title: "Evaluate Release",
+      description:
+        "Evaluate gate-4 production-release readiness for a project. `result` (\"approved\"|\"blocked\") is " +
+        "computed only from criticalFindings/highFindings coverage. `incidentResponseVerified` and " +
+        "`backupRestoreVerified` are informational sub-checks (whether the GOV-IR-001/OPS-BACKUP-TEST-001 " +
+        "controls specifically PASSed) — they do NOT gate `result` on their own, so `result: \"approved\"` " +
+        "can appear alongside either of them being false; check them explicitly if they matter for your use case.",
+      inputSchema: evaluateReleaseInputShape,
+    },
     async ({ projectId }) => {
       try {
         const evaluation = await service.evaluateRelease(projectId);
