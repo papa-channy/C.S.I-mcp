@@ -383,18 +383,16 @@ describe("AssessmentService.listFindings", () => {
     await expect(service.listFindings("nope")).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("maxPriorityIndex/maxCriticalityIndex return findings at or below the given index (more urgent/severe), not above it", async () => {
+  it("maxPriorityIndex returns findings at or below the given index (more urgent), not above it", async () => {
     const repo = await makeProjectRepo();
     repo.controls = [control()];
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
-    // Most urgent/severe: priorityIndex 0, low severity factors so criticality.index stays low too.
     const urgent = await service.recordFinding({
       projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "urgent", attackScenario: "y",
       severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 2, detectionDifficulty: 0 },
       priorityIndex: 0, priorityRationale: "r",
     });
-    // Least urgent/severe: high priorityIndex and high severity factors (criticality.index high).
     await service.recordFinding({
       projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "not urgent", attackScenario: "y",
       severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
@@ -404,9 +402,27 @@ describe("AssessmentService.listFindings", () => {
     const mostUrgent = await service.listFindings("PRJ-1", { maxPriorityIndex: 0 });
     expect(mostUrgent).toHaveLength(1);
     expect(mostUrgent[0].findingId).toBe(urgent.findingId);
+  });
 
-    const lowSeverity = await service.listFindings("PRJ-1", { maxCriticalityIndex: urgent.criticality.index });
-    expect(lowSeverity).toHaveLength(1);
-    expect(lowSeverity[0].findingId).toBe(urgent.findingId);
+  it("minCriticalityIndex returns findings at or above the given index (more severe), not below it — the OPPOSITE comparison direction from maxPriorityIndex, since criticality.index counts up to worse while priority.index counts down to worse", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const severe = await service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "severe", attackScenario: "y",
+      severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
+      priorityIndex: 0, priorityRationale: "r",
+    });
+    await service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "mild", attackScenario: "y",
+      severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 2, detectionDifficulty: 0 },
+      priorityIndex: 9, priorityRationale: "r",
+    });
+
+    expect(severe.criticality.index).toBeGreaterThan(0);
+    const mostSevere = await service.listFindings("PRJ-1", { minCriticalityIndex: severe.criticality.index });
+    expect(mostSevere).toHaveLength(1);
+    expect(mostSevere[0].findingId).toBe(severe.findingId);
   });
 });

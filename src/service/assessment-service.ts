@@ -58,7 +58,11 @@ export interface ListFindingsFilters {
   status?: Finding["status"];
   controlId?: string;
   maxPriorityIndex?: number;
-  maxCriticalityIndex?: number;
+  // NOT the same direction as maxPriorityIndex: priority.index counts DOWN to more urgent (0 = most
+  // urgent), but criticality.index counts UP to more severe (9 = most severe). "give me the worst
+  // findings" is therefore priority.index <= max, but criticality.index >= min — hence "min" here,
+  // not "max", even though both filters answer the same "give me the worst ones" intent.
+  minCriticalityIndex?: number;
 }
 
 const SEVERITY_THRESHOLDS: { min: number; severity: Finding["severity"] }[] = [
@@ -244,6 +248,6 @@ export class AssessmentService {
       .filter((f) => !filters.status || f.status === filters.status)
       .filter((f) => !filters.controlId || f.controlIds.includes(filters.controlId!))
       .filter((f) => filters.maxPriorityIndex === undefined || f.priority.index <= filters.maxPriorityIndex!)
-      .filter((f) => filters.maxCriticalityIndex === undefined || f.criticality.index <= filters.maxCriticalityIndex!);
+      .filter((f) => filters.minCriticalityIndex === undefined || f.criticality.index >= filters.minCriticalityIndex!);
   }
 }
