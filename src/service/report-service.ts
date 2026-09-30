@@ -1,28 +1,16 @@
-import type { SecurityRepository, Finding, ControlAssessment } from "../core/repository.js";
+import type { SecurityRepository, ControlAssessment } from "../core/repository.js";
 import { buildReport, type ProjectReport } from "../core/report-builder.js";
 import { calculateScore, type Score, type FindingInput as ScoreFindingInput } from "../core/score.js";
 import { evaluateRelease, type ReleaseEvaluation, type FindingInput } from "../core/release-evaluator.js";
 import { ServiceError, withNotFound } from "./errors.js";
 import { generateUuid } from "./ids.js";
 import { CRITICALITY_FORMULA_ID, SCORE_MODEL_ID } from "./constants.js";
+import { normalizeFindingSeverity, normalizeFinding } from "./severity.js";
 
 export interface GenerateReportInput {
   projectId: string;
   runId: string;
   summary: string;
-}
-
-function normalizeFindingSeverity(severity: Finding["severity"]): FindingInput["severity"] {
-  return severity === "informational" ? "info" : severity;
-}
-
-function normalizeFinding(finding: Finding): FindingInput {
-  return {
-    findingId: finding.findingId,
-    controlIds: finding.controlIds,
-    status: finding.status,
-    severity: normalizeFindingSeverity(finding.severity),
-  };
 }
 
 export class ReportService {
