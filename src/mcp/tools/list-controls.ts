@@ -18,7 +18,13 @@ export function registerListControlsTool(server: McpServer, service: AssessmentS
     "list_controls",
     {
       title: "List Controls",
-      description: "List catalog controls with their applicability and assessment status for a project.",
+      description:
+        "List catalog controls with their applicability and assessment status for a project. By default " +
+        "(or detail: \"summary\") each entry is {controlId, title, domain, applicability, assessmentStatus, " +
+        "findingCount} — enough to triage what to assess next, but not the full requirement text. Pass " +
+        "detail: \"full\" (optionally combined with controlIds to scope it) to get the complete catalog " +
+        "record instead (requirement, passCriteria, verification.methods, etc.) — this is a different " +
+        "response shape for the same tool, not an addition to the summary fields.",
       inputSchema: listControlsInputShape,
     },
     async ({ projectId, ...filters }) => {
