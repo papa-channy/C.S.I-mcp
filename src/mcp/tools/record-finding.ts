@@ -19,14 +19,39 @@ export const recordFindingInputShape = {
     ])
     .describe(
       "What kind of thing this finding actually is, independent of severity. " +
-        "confirmed_vulnerability: an attack path traced end-to-end with code evidence. " +
-        "likely_vulnerability: a plausible weakness identified but not fully traced/verified. " +
-        "control_gap: a required security control is simply missing or unenforced. " +
-        "hardening: the control exists but could be strengthened; not exploitable as-is. " +
-        "process_gap: an organizational/operational control is missing (e.g. no audit log), not an app defect. " +
-        "accepted_design: looks like a gap but is actually an intentional architecture choice. " +
-        "needs_validation: evidence is insufficient to classify confidently yet. " +
-        "Only confirmed_vulnerability findings count toward the production_release gate's criticalFindings/highFindings thresholds."
+        "Only confirmed_vulnerability findings count toward the production_release gate's " +
+        "criticalFindings/highFindings thresholds — picking the right type is not cosmetic. " +
+        "Work through these questions IN ORDER and stop at the first one that applies:\n" +
+        "1. Did you trace a concrete, attacker-reachable path to impact end-to-end, with code " +
+        "evidence for every step (not just the starting weakness)? -> confirmed_vulnerability.\n" +
+        "2. Is there a real weakness and a plausible path, but you could not fully verify " +
+        "reachability or finish tracing it (time-boxed, upstream caller not found in this " +
+        "snapshot, etc.) -- honestly, not as a hedge? -> likely_vulnerability.\n" +
+        "3. Is a concrete technical security mechanism (auth check, encryption, input " +
+        "validation, SSRF/egress filtering, rate limiting, access control, audit-log write " +
+        "call, etc.) that the control's OWN passCriteria requires simply absent, disabled, or " +
+        "unenforced in the code/config/infra -- something you could point a remediation PR at? " +
+        "-> control_gap. This applies even when exploiting the gap needs a separate " +
+        "precondition (e.g. the attacker must already have a stolen password or database read " +
+        "access) -- a precondition does not downgrade a missing mechanism to 'hardening'. The " +
+        "test is 'does the control's text require this mechanism to exist', not 'is this " +
+        "immediately exploitable from zero access'. Missing audit-log entries for admin " +
+        "actions ARE control_gap under this test -- the remediation is still a concrete code " +
+        "change (add the log-write call), not a process change.\n" +
+        "4. Is the remediation inherently a human/organizational practice rather than a code " +
+        "or config change -- a review that was never performed, a triage queue that was never " +
+        "worked, a drill that was never run, a document that was never written -- where the " +
+        "underlying mechanism may already exist (e.g. a scanner runs, but nobody triages what " +
+        "it finds)? -> process_gap.\n" +
+        "5. Does a working control already satisfy its passCriteria, and is this about making " +
+        "defense genuinely deeper (not about meeting an unmet requirement)? -> hardening.\n" +
+        "6. Did it look like a gap at first but turn out to be an intentional, justified " +
+        "architecture choice once you traced it fully? -> accepted_design.\n" +
+        "7. None of the above fit with confidence given the evidence you have? -> needs_validation. " +
+        "Honest uncertainty beats forcing a confident-sounding label.\n" +
+        "One finding should be one distinct defect with one remediation; if you're describing two " +
+        "unrelated weaknesses (e.g. 'container runs as root' and 'TLS not enforced by default') " +
+        "with different fixes, record them as two separate findings, not one combined finding."
     ),
   attackScenario: z.string().min(1),
   severityFactors: z.object({
