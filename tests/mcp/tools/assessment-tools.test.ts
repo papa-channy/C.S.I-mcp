@@ -84,12 +84,17 @@ describe("assessment tools", () => {
   it("record_assessment then record_finding then list_findings round-trips", async () => {
     const { client } = await makeConnectedClient();
     const run = await client.callTool({ name: "start_assessment_run", arguments: { projectId: "PRJ-1" } });
-    await client.callTool({
+    const assessment = await client.callTool({
       name: "record_assessment",
       arguments: {
-        projectId: "PRJ-1", runId: (run.structuredContent as any).runId, controlId: "APP-INPUT-VAL-001", status: "FAIL", evidence: [],
+        projectId: "PRJ-1", runId: (run.structuredContent as any).runId, controlId: "APP-INPUT-VAL-001", status: "FAIL",
+        evidence: [{
+          type: "CODE", location: "src/x.ts",
+          searchScope: "src/x.ts and its callers", searchMethod: "manual trace",
+        }],
       },
     });
+    expect(assessment.isError).toBeFalsy();
     const finding = await client.callTool({
       name: "record_finding",
       arguments: {

@@ -174,13 +174,29 @@ export class AssessmentService {
       this.repository.getRun(input.projectId, input.runId), `Run "${input.runId}" not found`, { projectId: input.projectId, runId: input.runId }
     );
 
-    if (input.status === "PASS" && input.evidence.length === 0) {
-      throw new ServiceError("VALIDATION_ERROR", "status PASS requires at least one evidence entry", { controlId: input.controlId });
-    }
-    if (input.status === "PASS" && !input.evidence.some((e) => e.searchScope && e.searchMethod)) {
+    // PASS, FAIL, and PARTIAL all assert a definitive, code-level fact about the
+    // control's actual state — unlike NOT_TESTED (an honest abstention), N/A
+    // (requires notes instead), or ACCEPTED_RISK (requires riskAcceptanceId
+    // instead). A real incident (Chatwoot's APP-SSRF-001, initially marked FAIL
+    // on evidence that cited a model-level regex but never traced the actual
+    // outbound request path) showed that a shallow FAIL is exactly as
+    // untrustworthy as a shallow PASS — so both verdict directions need the
+    // same methodology rigor, not just the "looks safe" direction.
+    const VERDICTS_REQUIRING_METHODOLOGY_EVIDENCE = ["PASS", "FAIL", "PARTIAL"];
+    if (VERDICTS_REQUIRING_METHODOLOGY_EVIDENCE.includes(input.status) && input.evidence.length === 0) {
       throw new ServiceError(
         "VALIDATION_ERROR",
-        "status PASS requires at least one evidence entry with both searchScope and searchMethod — document what was actually searched and how, not just the conclusion",
+        `status ${input.status} requires at least one evidence entry`,
+        { controlId: input.controlId }
+      );
+    }
+    if (
+      VERDICTS_REQUIRING_METHODOLOGY_EVIDENCE.includes(input.status) &&
+      !input.evidence.some((e) => e.searchScope && e.searchMethod)
+    ) {
+      throw new ServiceError(
+        "VALIDATION_ERROR",
+        `status ${input.status} requires at least one evidence entry with both searchScope and searchMethod — document what was actually searched and how, not just the conclusion`,
         { controlId: input.controlId }
       );
     }

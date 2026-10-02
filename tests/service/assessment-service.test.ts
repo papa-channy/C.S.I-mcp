@@ -202,6 +202,69 @@ describe("AssessmentService.recordAssessment", () => {
     expect(evidence[1]).toMatchObject({ searchScope: "tests/", searchMethod: "ran the suite", candidateCount: 0 });
   });
 
+  it("rejects FAIL with zero evidence entries", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "FAIL", evidence: [],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects FAIL whose evidence has no searchScope/searchMethod — a shallow FAIL is as untrustworthy as a shallow PASS", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "FAIL",
+      evidence: [{ type: "CODE", location: "app/models/webhook.rb:28" }],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("accepts FAIL when evidence has searchScope and searchMethod", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "FAIL",
+      evidence: [{
+        type: "CODE", location: "app/models/webhook.rb:28",
+        searchScope: "app/models/webhook.rb and the full outbound request path",
+        searchMethod: "traced perform_request end-to-end, no SSRF guard found on the actual network call",
+      }],
+    });
+    expect(assessment.status).toBe("FAIL");
+  });
+
+  it("rejects PARTIAL with zero evidence entries", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PARTIAL", evidence: [],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects PARTIAL whose evidence has no searchScope/searchMethod", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PARTIAL",
+      evidence: [{ type: "CODE", location: "src/x.ts" }],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("does not require evidence/searchScope/searchMethod for NOT_TESTED", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "NOT_TESTED", evidence: [],
+    });
+    expect(assessment.status).toBe("NOT_TESTED");
+  });
+
   it("rejects N/A without notes", async () => {
     const repo = await makeProjectRepo();
     repo.controls = [control()];
