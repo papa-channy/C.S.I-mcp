@@ -32,6 +32,10 @@ export interface Evidence {
   type: EvidenceType;
   location: string;
   description?: string;
+  searchScope?: string;
+  searchMethod?: string;
+  candidateCount?: number;
+  excludedCandidates?: string;
   capturedAt: string;
   capturedBy: string;
 }
@@ -75,11 +79,13 @@ export interface ControlAssessment {
 export interface Finding {
   findingId: string;
   title: string;
+  type: "confirmed_vulnerability" | "likely_vulnerability" | "control_gap" | "hardening" | "process_gap" | "accepted_design" | "needs_validation";
   controlIds: string[];
   status: "open" | "in_progress" | "resolved" | "accepted" | "false_positive";
   severity: "critical" | "high" | "medium" | "low" | "informational";
   priority: { index: number; source: "agent" | "human"; rationale: string; assignedBy: string; assignedAt: string };
   criticality: { index: number; formulaId: string; formulaVersion: string; computedAt: string };
+  exploitabilityEvidence?: string;
   [key: string]: unknown;
 }
 

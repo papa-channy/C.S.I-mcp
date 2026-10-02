@@ -35,7 +35,7 @@ export interface ReleaseEvaluationForReport {
   residualRisksAccepted: number;
   incidentResponseVerified: boolean;
   backupRestoreVerified: boolean;
-  result: "approved" | "blocked";
+  result: "approved" | "blocked" | "indeterminate";
 }
 
 export interface ProjectReport {

@@ -8,6 +8,7 @@ describe("finding-schema", () => {
   const valid = {
     findingId: "FND-001",
     title: "Admin API reachable without authentication",
+    type: "confirmed_vulnerability",
     controlIds: ["IAM-AUTH-001", "IAM-AUTHZ-003"],
     threatIds: ["THR-IAM-UNAUTHENTICATED-ACCESS"],
     attackScenario: "An unauthenticated request to /admin/users returns the full user list.",
@@ -31,6 +32,7 @@ describe("finding-schema", () => {
     },
     severity: "critical",
     status: "open",
+    exploitabilityEvidence: "server/routes/admin/users.ts:42 has no authentication middleware on the route handler.",
   };
 
   it("accepts a well-formed finding referencing multiple controls", () => {

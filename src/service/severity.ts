@@ -11,5 +11,6 @@ export function normalizeFinding(finding: Finding): FindingInput {
     controlIds: finding.controlIds,
     status: finding.status,
     severity: normalizeFindingSeverity(finding.severity),
+    type: finding.type,
   };
 }

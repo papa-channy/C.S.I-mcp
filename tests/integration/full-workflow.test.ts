@@ -87,7 +87,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
         name: "record_assessment",
         arguments: {
           projectId, runId, controlId, status: "PASS",
-          evidence: [{ type: "MANUAL_TEST", location: "manual test log" }],
+          evidence: [{ type: "MANUAL_TEST", location: "manual test log", searchScope: "entire repository", searchMethod: "manual review" }],
         },
       });
     }
@@ -95,7 +95,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     const finding = await client.callTool({
       name: "record_finding",
       arguments: {
-        projectId, controlIds: [targetControlId], title: "Weak incident runbook", attackScenario: "delayed response",
+        projectId, controlIds: [targetControlId], title: "Weak incident runbook", type: "process_gap", attackScenario: "delayed response",
         severityFactors: { impact: 2, exploitability: 1, exposure: 1, privilegeRequired: 2, detectionDifficulty: 0 },
         priorityIndex: 5, priorityRationale: "low urgency",
       },

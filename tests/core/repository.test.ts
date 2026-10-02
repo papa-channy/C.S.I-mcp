@@ -144,7 +144,7 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
 
   it("saveFinding then reload round-trips the Finding under the project's findings.json", async () => {
     const finding: Finding = {
-      findingId: "FND-001", title: "SQLi", controlIds: ["APP-INPUT-VAL-001"], attackScenario: "x",
+      findingId: "FND-001", title: "SQLi", type: "confirmed_vulnerability", controlIds: ["APP-INPUT-VAL-001"], attackScenario: "x",
       impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2,
       criticality: { index: 9, formulaId: "CRIT-DEFAULT", formulaVersion: "1.0.0", computedAt: "2026-09-30T00:00:00.000Z" },
       priority: { index: 0, source: "agent", rationale: "r", assignedBy: "csi-mcp-agent", assignedAt: "2026-09-30T00:00:00.000Z" },

@@ -37,7 +37,15 @@ export interface RecordAssessmentInput {
   runId: string;
   controlId: string;
   status: AssessmentStatus;
-  evidence: { type: EvidenceType; location: string; description?: string }[];
+  evidence: {
+    type: EvidenceType;
+    location: string;
+    description?: string;
+    searchScope?: string;
+    searchMethod?: string;
+    candidateCount?: number;
+    excludedCandidates?: string;
+  }[];
   notes?: string;
   riskAcceptanceId?: string;
   applicabilityOverride?: { result: Verdict; reason: string };
@@ -47,11 +55,13 @@ export interface RecordFindingInput {
   projectId: string;
   controlIds: string[];
   title: string;
+  type: Finding["type"];
   attackScenario: string;
   severityFactors: SeverityFactors;
   priorityIndex: number;
   priorityRationale: string;
   priorityOverrideReason?: string;
+  exploitabilityEvidence?: string;
 }
 
 export interface ListFindingsFilters {
@@ -167,6 +177,13 @@ export class AssessmentService {
     if (input.status === "PASS" && input.evidence.length === 0) {
       throw new ServiceError("VALIDATION_ERROR", "status PASS requires at least one evidence entry", { controlId: input.controlId });
     }
+    if (input.status === "PASS" && !input.evidence.some((e) => e.searchScope && e.searchMethod)) {
+      throw new ServiceError(
+        "VALIDATION_ERROR",
+        "status PASS requires at least one evidence entry with both searchScope and searchMethod — document what was actually searched and how, not just the conclusion",
+        { controlId: input.controlId }
+      );
+    }
     if (input.status === "N/A" && !input.notes) {
       throw new ServiceError("VALIDATION_ERROR", 'status "N/A" requires non-empty notes', { controlId: input.controlId });
     }
@@ -187,6 +204,10 @@ export class AssessmentService {
       const evidence: Evidence = {
         evidenceId, type: item.type, location: item.location,
         ...(item.description !== undefined ? { description: item.description } : {}),
+        ...(item.searchScope !== undefined ? { searchScope: item.searchScope } : {}),
+        ...(item.searchMethod !== undefined ? { searchMethod: item.searchMethod } : {}),
+        ...(item.candidateCount !== undefined ? { candidateCount: item.candidateCount } : {}),
+        ...(item.excludedCandidates !== undefined ? { excludedCandidates: item.excludedCandidates } : {}),
         capturedAt: this.now(), capturedBy: AGENT_IDENTITY,
       };
       await this.repository.saveEvidence(input.projectId, evidence);
@@ -224,15 +245,23 @@ export class AssessmentService {
       );
     }
 
+    if ((severity === "critical" || severity === "high") && !input.exploitabilityEvidence) {
+      throw new ServiceError(
+        "VALIDATION_ERROR", "exploitabilityEvidence is required when severity is critical or high",
+        { severity }
+      );
+    }
+
     const existingFindings = await this.repository.getFindings(input.projectId);
     const finding: Finding = {
       findingId: nextSequentialId("FND", existingFindings.length),
-      title: input.title, controlIds: input.controlIds, attackScenario: input.attackScenario,
+      title: input.title, type: input.type, controlIds: input.controlIds, attackScenario: input.attackScenario,
       impact: input.severityFactors.impact, exploitability: input.severityFactors.exploitability,
       exposure: input.severityFactors.exposure, privilegeRequired: input.severityFactors.privilegeRequired,
       detectionDifficulty: input.severityFactors.detectionDifficulty, criticality,
       priority: { index: input.priorityIndex, source: "agent", rationale: input.priorityRationale, assignedBy: AGENT_IDENTITY, assignedAt: this.now() },
       ...(input.priorityOverrideReason !== undefined ? { priorityOverrideReason: input.priorityOverrideReason } : {}),
+      ...(input.exploitabilityEvidence !== undefined ? { exploitabilityEvidence: input.exploitabilityEvidence } : {}),
       severity, status: "open",
     };
     await this.repository.saveFinding(input.projectId, finding);

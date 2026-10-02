@@ -93,9 +93,9 @@ describe("assessment tools", () => {
     const finding = await client.callTool({
       name: "record_finding",
       arguments: {
-        projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "SQLi", attackScenario: "attacker injects",
+        projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "SQLi", type: "confirmed_vulnerability", attackScenario: "attacker injects",
         severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
-        priorityIndex: 0, priorityRationale: "worst case",
+        priorityIndex: 0, priorityRationale: "worst case", exploitabilityEvidence: "traced end-to-end in code review",
       },
     });
     expect((finding.structuredContent as any).findingId).toBe("FND-001");

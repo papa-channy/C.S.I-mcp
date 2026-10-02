@@ -155,7 +155,7 @@ describe("AssessmentService.recordAssessment", () => {
     const service = new AssessmentService(repo, () => FIXED_NOW);
     const assessment = await service.recordAssessment({
       projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
-      evidence: [{ type: "AUTOMATED_TEST", location: "tests/x.test.ts" }],
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/x.test.ts", searchScope: "tests/", searchMethod: "ran the suite" }],
     });
     expect(assessment.evidenceIds).toEqual(["EVD-001"]);
     expect(assessment.applicability).toEqual({ autoResult: "applicable", finalResult: "applicable", matchedRules: ["fact"].length ? assessment.applicability.matchedRules : [], source: "automatic" });
@@ -174,6 +174,32 @@ describe("AssessmentService.recordAssessment", () => {
     await expect(service.recordAssessment({
       projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS", evidence: [],
     })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects PASS whose evidence has no searchScope/searchMethod at all", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/x.test.ts" }],
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("accepts PASS when at least one of several evidence items has searchScope and searchMethod", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
+      evidence: [
+        { type: "MANUAL_REVIEW", location: "src/x.ts" },
+        { type: "AUTOMATED_TEST", location: "tests/x.test.ts", searchScope: "tests/", searchMethod: "ran the suite", candidateCount: 0 },
+      ],
+    });
+    expect(assessment.status).toBe("PASS");
+    const evidence = await repo.getEvidence("PRJ-1");
+    expect(evidence[1]).toMatchObject({ searchScope: "tests/", searchMethod: "ran the suite", candidateCount: 0 });
   });
 
   it("rejects N/A without notes", async () => {
@@ -225,7 +251,7 @@ describe("AssessmentService.recordAssessment", () => {
     await service.recordAssessment({ projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "NOT_TESTED", evidence: [] });
     await service.recordAssessment({
       projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
-      evidence: [{ type: "AUTOMATED_TEST", location: "tests/x.test.ts" }],
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/x.test.ts", searchScope: "tests/", searchMethod: "ran the suite" }],
     });
     const all = await repo.getControlAssessments("PRJ-1");
     expect(all).toHaveLength(1);
@@ -257,14 +283,14 @@ describe("AssessmentService.recordAssessment", () => {
     // First call: record assessment for control 1 with evidence
     const assessment1 = await service.recordAssessment({
       projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "PASS",
-      evidence: [{ type: "AUTOMATED_TEST", location: "tests/validation.test.ts" }],
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/validation.test.ts", searchScope: "tests/", searchMethod: "ran the suite" }],
     });
     expect(assessment1.evidenceIds).toEqual(["EVD-001"]);
 
     // Second call: record assessment for control 2 with evidence (same project)
     const assessment2 = await service.recordAssessment({
       projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-AUTH-MULTI-FACTOR-001", status: "PASS",
-      evidence: [{ type: "AUTOMATED_TEST", location: "tests/auth.test.ts" }],
+      evidence: [{ type: "AUTOMATED_TEST", location: "tests/auth.test.ts", searchScope: "tests/", searchMethod: "ran the suite" }],
     });
     expect(assessment2.evidenceIds).toEqual(["EVD-002"]);
 
@@ -293,9 +319,9 @@ describe("AssessmentService.recordFinding", () => {
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
     const finding = await service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "SQLi", attackScenario: "attacker injects",
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "SQLi", type: "confirmed_vulnerability", attackScenario: "attacker injects",
       severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
-      priorityIndex: 0, priorityRationale: "worst case",
+      priorityIndex: 0, priorityRationale: "worst case", exploitabilityEvidence: "traced end-to-end in code review",
     });
     expect(finding.findingId).toBe("FND-001");
     expect(finding.criticality.index).toBeGreaterThanOrEqual(8);
@@ -316,8 +342,8 @@ describe("AssessmentService.recordFinding", () => {
     ];
     for (const { factors, expected } of cases) {
       const finding = await service.recordFinding({
-        projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", attackScenario: "y",
-        severityFactors: factors, priorityIndex: 9, priorityRationale: "r", priorityOverrideReason: "r",
+        projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", type: "confirmed_vulnerability", attackScenario: "y",
+        severityFactors: factors, priorityIndex: 9, priorityRationale: "r", priorityOverrideReason: "r", exploitabilityEvidence: "r",
       });
       expect(finding.severity).toBe(expected);
     }
@@ -328,7 +354,7 @@ describe("AssessmentService.recordFinding", () => {
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
     await expect(service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["NOPE-001"], title: "x", attackScenario: "y",
+      projectId: "PRJ-1", controlIds: ["NOPE-001"], title: "x", type: "confirmed_vulnerability",attackScenario: "y",
       severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 0, detectionDifficulty: 0 },
       priorityIndex: 0, priorityRationale: "r",
     })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
@@ -340,7 +366,7 @@ describe("AssessmentService.recordFinding", () => {
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
     await expect(service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", attackScenario: "y",
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", type: "confirmed_vulnerability",attackScenario: "y",
       severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
       priorityIndex: 2, priorityRationale: "r",
     })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
@@ -351,10 +377,36 @@ describe("AssessmentService.recordFinding", () => {
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
     await expect(service.recordFinding({
-      projectId: "nope", controlIds: ["APP-INPUT-VAL-001"], title: "x", attackScenario: "y",
+      projectId: "nope", controlIds: ["APP-INPUT-VAL-001"], title: "x", type: "confirmed_vulnerability",attackScenario: "y",
       severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 0, detectionDifficulty: 0 },
       priorityIndex: 0, priorityRationale: "r",
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("requires exploitabilityEvidence when severity is critical", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", type: "confirmed_vulnerability", attackScenario: "y",
+      severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
+      priorityIndex: 9, priorityRationale: "r",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("does not require exploitabilityEvidence when severity is medium or below", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    setCriticalityFormula(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const finding = await service.recordFinding({
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "x", type: "control_gap", attackScenario: "y",
+      severityFactors: { impact: 3, exploitability: 3, exposure: 1, privilegeRequired: 1, detectionDifficulty: 1 },
+      priorityIndex: 9, priorityRationale: "r",
+    });
+    expect(finding.severity).toBe("medium");
+    expect(finding.exploitabilityEvidence).toBeUndefined();
   });
 });
 
@@ -365,7 +417,7 @@ describe("AssessmentService.listFindings", () => {
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
     await service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "A", attackScenario: "y",
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "A", type: "confirmed_vulnerability",attackScenario: "y",
       severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 0, detectionDifficulty: 0 },
       priorityIndex: 0, priorityRationale: "r",
     });
@@ -389,14 +441,14 @@ describe("AssessmentService.listFindings", () => {
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
     const urgent = await service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "urgent", attackScenario: "y",
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "urgent", type: "confirmed_vulnerability",attackScenario: "y",
       severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 2, detectionDifficulty: 0 },
       priorityIndex: 0, priorityRationale: "r",
     });
     await service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "not urgent", attackScenario: "y",
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "not urgent", type: "confirmed_vulnerability", attackScenario: "y",
       severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
-      priorityIndex: 9, priorityRationale: "r", priorityOverrideReason: "r",
+      priorityIndex: 9, priorityRationale: "r", priorityOverrideReason: "r", exploitabilityEvidence: "r",
     });
 
     const mostUrgent = await service.listFindings("PRJ-1", { maxPriorityIndex: 0 });
@@ -410,12 +462,12 @@ describe("AssessmentService.listFindings", () => {
     setCriticalityFormula(repo);
     const service = new AssessmentService(repo, () => FIXED_NOW);
     const severe = await service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "severe", attackScenario: "y",
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "severe", type: "confirmed_vulnerability", attackScenario: "y",
       severityFactors: { impact: 5, exploitability: 5, exposure: 3, privilegeRequired: 0, detectionDifficulty: 2 },
-      priorityIndex: 0, priorityRationale: "r",
+      priorityIndex: 0, priorityRationale: "r", exploitabilityEvidence: "r",
     });
     await service.recordFinding({
-      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "mild", attackScenario: "y",
+      projectId: "PRJ-1", controlIds: ["APP-INPUT-VAL-001"], title: "mild", type: "confirmed_vulnerability",attackScenario: "y",
       severityFactors: { impact: 1, exploitability: 1, exposure: 1, privilegeRequired: 2, detectionDifficulty: 0 },
       priorityIndex: 9, priorityRationale: "r",
     });

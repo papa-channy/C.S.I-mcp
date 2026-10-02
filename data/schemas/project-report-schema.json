@@ -87,7 +87,7 @@
         "residualRisksAccepted": { "type": "integer", "minimum": 0 },
         "incidentResponseVerified": { "type": "boolean" },
         "backupRestoreVerified": { "type": "boolean" },
-        "result": { "type": "string", "enum": ["approved", "blocked"] }
+        "result": { "type": "string", "enum": ["approved", "blocked", "indeterminate"] }
       },
       "required": ["gate", "controlCoverage", "criticalFindings", "highFindings", "unblockedCriticalAttackPaths", "residualRisksAccepted", "incidentResponseVerified", "backupRestoreVerified", "result"],
       "additionalProperties": false

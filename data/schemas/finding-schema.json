@@ -6,6 +6,11 @@
   "properties": {
     "findingId": { "type": "string", "pattern": "^FND-[0-9]+$" },
     "title": { "type": "string", "minLength": 1 },
+    "type": {
+      "type": "string",
+      "enum": ["confirmed_vulnerability", "likely_vulnerability", "control_gap", "hardening", "process_gap", "accepted_design", "needs_validation"],
+      "description": "Classifies what kind of thing this Finding actually is, independent of severity. Only confirmed_vulnerability findings count toward the production_release gate's criticalFindings/highFindings thresholds (see release-evaluator.ts) — a high-severity control_gap or hardening finding is real and worth fixing, but is not treated as a demonstrated exploitable vulnerability that by itself blocks release."
+    },
     "affectedAsset": { "type": "string" },
     "controlIds": { "type": "array", "minItems": 1, "items": { "type": "string" } },
     "threatIds": { "type": "array", "items": { "type": "string", "pattern": "^THR-[A-Z0-9-]+$" } },
@@ -43,6 +48,11 @@
       "additionalProperties": false
     },
     "priorityOverrideReason": { "type": "string", "minLength": 1 },
+    "exploitabilityEvidence": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when severity is critical or high. Describes the concrete, end-to-end attack path (with code citation) that makes this finding exploitable, not just a severity-factor score."
+    },
     "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "informational"] },
     "evidenceIds": { "type": "array", "items": { "type": "string" } },
     "remediation": { "type": "string" },
@@ -53,7 +63,7 @@
     "retestResult": { "type": ["string", "null"] }
   },
   "required": [
-    "findingId", "title", "controlIds", "attackScenario", "impact",
+    "findingId", "title", "type", "controlIds", "attackScenario", "impact",
     "exploitability", "exposure", "privilegeRequired", "detectionDifficulty",
     "criticality", "priority", "severity", "status"
   ],
@@ -78,6 +88,16 @@
       "then": {
         "properties": { "priorityOverrideReason": { "type": "string" } },
         "required": ["priorityOverrideReason"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "severity": { "enum": ["critical", "high"] } },
+        "required": ["severity"]
+      },
+      "then": {
+        "properties": { "exploitabilityEvidence": { "type": "string", "minLength": 1 } },
+        "required": ["exploitabilityEvidence"]
       }
     }
   ]

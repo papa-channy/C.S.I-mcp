@@ -3,15 +3,31 @@ export const RELEASE_GATE_CONTROL_MAP = {
   backupRestoreVerified: "OPS-BACKUP-TEST-001",
 } as const;
 
+// Below this coverage, an otherwise-clean finding set is not good evidence of a
+// clean release — it may just mean most applicable controls were never assessed.
+// "approved" is downgraded to "indeterminate" in that case; a result that was
+// already "blocked" on findings/thresholds stays "blocked" regardless of coverage.
+export const MIN_COVERAGE_FOR_APPROVAL_PERCENT = 80;
+
 export interface ScoreInput {
   coverage: { coveragePercent: number };
 }
+
+export type FindingType =
+  | "confirmed_vulnerability"
+  | "likely_vulnerability"
+  | "control_gap"
+  | "hardening"
+  | "process_gap"
+  | "accepted_design"
+  | "needs_validation";
 
 export interface FindingInput {
   findingId: string;
   controlIds: string[];
   status: "open" | "in_progress" | "resolved" | "accepted" | "false_positive";
   severity: "critical" | "high" | "medium" | "low" | "info";
+  type: FindingType;
 }
 
 export interface AttackPathInput {
@@ -33,7 +49,7 @@ export interface ReleaseEvaluation {
   residualRisksAccepted: number;
   incidentResponseVerified: boolean;
   backupRestoreVerified: boolean;
-  result: "approved" | "blocked";
+  result: "approved" | "blocked" | "indeterminate";
 }
 
 export function evaluateRelease(inputs: {
@@ -51,7 +67,13 @@ export function evaluateRelease(inputs: {
     );
   }
 
-  const activeFindings = findings.filter((f) => f.status === "open" || f.status === "in_progress");
+  // Gate counts only confirmed_vulnerability findings — a high/critical severity
+  // control_gap, hardening, process_gap, etc. finding is real and worth fixing,
+  // but it is not a demonstrated exploitable vulnerability and should not by
+  // itself block a release the way a confirmed_vulnerability does.
+  const activeFindings = findings.filter(
+    (f) => (f.status === "open" || f.status === "in_progress") && f.type === "confirmed_vulnerability"
+  );
   const activeCritical = activeFindings.filter((f) => f.severity === "critical");
   const activeHigh = activeFindings.filter((f) => f.severity === "high");
   const criticalFindings = activeCritical.length;
@@ -73,7 +95,12 @@ export function evaluateRelease(inputs: {
   );
   const highFindingsSatisfied = securityLevel === "SVL-3" ? highFindings === 0 : uncoveredHigh.length === 0;
 
-  const result: "approved" | "blocked" = criticalFindings === 0 && highFindingsSatisfied ? "approved" : "blocked";
+  const findingThresholdsPass = criticalFindings === 0 && highFindingsSatisfied;
+  const result: "approved" | "blocked" | "indeterminate" = !findingThresholdsPass
+    ? "blocked"
+    : score.coverage.coveragePercent < MIN_COVERAGE_FOR_APPROVAL_PERCENT
+      ? "indeterminate"
+      : "approved";
 
   return {
     gate: 4,

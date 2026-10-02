@@ -15,6 +15,25 @@
     },
     "location": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
+    "searchScope": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What was actually searched (directories/files/packages) to reach a PASS verdict — e.g. 'src/ entire tree', not just the one file that happened to be cited."
+    },
+    "searchMethod": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The concrete method used to search (e.g. a grep pattern, a specific tool invocation) — not a prose summary of the conclusion."
+    },
+    "candidateCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many candidate matches the search above turned up, before any were excluded as non-issues."
+    },
+    "excludedCandidates": {
+      "type": "string",
+      "description": "Why each candidate (if any) was excluded as not exploitable/not applicable — the reasoning that justifies a PASS despite candidates existing."
+    },
     "capturedAt": { "type": "string", "format": "date-time" },
     "capturedBy": { "type": "string", "minLength": 1 }
   },

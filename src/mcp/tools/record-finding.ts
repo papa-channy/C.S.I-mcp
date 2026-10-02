@@ -7,6 +7,27 @@ export const recordFindingInputShape = {
   projectId: z.string().min(1),
   controlIds: z.array(z.string().min(1)).min(1),
   title: z.string().min(1),
+  type: z
+    .enum([
+      "confirmed_vulnerability",
+      "likely_vulnerability",
+      "control_gap",
+      "hardening",
+      "process_gap",
+      "accepted_design",
+      "needs_validation",
+    ])
+    .describe(
+      "What kind of thing this finding actually is, independent of severity. " +
+        "confirmed_vulnerability: an attack path traced end-to-end with code evidence. " +
+        "likely_vulnerability: a plausible weakness identified but not fully traced/verified. " +
+        "control_gap: a required security control is simply missing or unenforced. " +
+        "hardening: the control exists but could be strengthened; not exploitable as-is. " +
+        "process_gap: an organizational/operational control is missing (e.g. no audit log), not an app defect. " +
+        "accepted_design: looks like a gap but is actually an intentional architecture choice. " +
+        "needs_validation: evidence is insufficient to classify confidently yet. " +
+        "Only confirmed_vulnerability findings count toward the production_release gate's criticalFindings/highFindings thresholds."
+    ),
   attackScenario: z.string().min(1),
   severityFactors: z.object({
     impact: z.number().int().min(1).max(5).describe("1-5, higher is worse. How much damage successful exploitation would cause."),
@@ -18,6 +39,13 @@ export const recordFindingInputShape = {
   priorityIndex: z.number().int().min(0).max(9).describe("0-9, LOWER is more urgent — 0 is the most urgent priority, not the least."),
   priorityRationale: z.string().min(1),
   priorityOverrideReason: z.string().optional(),
+  exploitabilityEvidence: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Required when the computed severity is critical or high. The concrete, end-to-end attack path (with code citation) that makes this finding exploitable — not a restatement of the severity factors."
+    ),
 };
 
 export function registerRecordFindingTool(server: McpServer, service: AssessmentService): void {

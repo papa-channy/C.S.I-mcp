@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateRelease,
+  MIN_COVERAGE_FOR_APPROVAL_PERCENT,
   RELEASE_GATE_CONTROL_MAP,
   type AttackPathInput,
   type ControlAssessmentInput,
@@ -38,32 +39,32 @@ describe("evaluateRelease — thresholds", () => {
   });
 
   it("SVL-3, one open critical finding -> blocked", () => {
-    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical" }];
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "confirmed_vulnerability" }];
     const result = evaluateRelease(baseInputs({ findings }));
     expect(result.criticalFindings).toBe(1);
     expect(result.result).toBe("blocked");
   });
 
   it("a resolved critical finding does not count toward criticalFindings or block the release", () => {
-    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "resolved", severity: "critical" }];
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "resolved", severity: "critical", type: "confirmed_vulnerability" }];
     const result = evaluateRelease(baseInputs({ findings }));
     expect(result.criticalFindings).toBe(0);
     expect(result.result).toBe("approved");
   });
 
   it("SVL-3, one open high finding -> blocked, even with an accepted-risk assessment on its control (no exception at SVL-3)", () => {
-    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high" }];
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high", type: "confirmed_vulnerability" }];
     const assessments: ControlAssessmentInput[] = [{ controlId: "X-001", status: "ACCEPTED_RISK" }];
     expect(evaluateRelease(baseInputs({ findings, assessments })).result).toBe("blocked");
   });
 
   it("SVL-2, one open high finding uncovered by any accepted risk -> blocked", () => {
-    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high" }];
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high", type: "confirmed_vulnerability" }];
     expect(evaluateRelease(baseInputs({ findings, securityLevel: "SVL-2" })).result).toBe("blocked");
   });
 
   it("SVL-2, one open high finding whose only control has an ACCEPTED_RISK assessment -> approved (the exception)", () => {
-    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high" }];
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high", type: "confirmed_vulnerability" }];
     const assessments: ControlAssessmentInput[] = [{ controlId: "X-001", status: "ACCEPTED_RISK" }];
     const result = evaluateRelease(baseInputs({ findings, assessments, securityLevel: "SVL-2" }));
     expect(result.highFindings).toBe(1); // the raw count is unaffected by the exception
@@ -71,9 +72,44 @@ describe("evaluateRelease — thresholds", () => {
   });
 
   it("SVL-2, a high finding with two controlIds where only one has ACCEPTED_RISK is NOT covered -> blocked", () => {
-    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001", "X-002"], status: "open", severity: "high" }];
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001", "X-002"], status: "open", severity: "high", type: "confirmed_vulnerability" }];
     const assessments: ControlAssessmentInput[] = [{ controlId: "X-001", status: "ACCEPTED_RISK" }, { controlId: "X-002", status: "FAIL" }];
     expect(evaluateRelease(baseInputs({ findings, assessments, securityLevel: "SVL-2" })).result).toBe("blocked");
+  });
+});
+
+describe("evaluateRelease — type-based gating", () => {
+  it("SVL-3, an open critical finding typed control_gap does not block the release", () => {
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "control_gap" }];
+    const result = evaluateRelease(baseInputs({ findings }));
+    expect(result.criticalFindings).toBe(0);
+    expect(result.result).toBe("approved");
+  });
+
+  it("SVL-3, an open high finding typed hardening does not block the release", () => {
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high", type: "hardening" }];
+    const result = evaluateRelease(baseInputs({ findings }));
+    expect(result.highFindings).toBe(0);
+    expect(result.result).toBe("approved");
+  });
+
+  it("a possible attack path related only to a non-confirmed_vulnerability critical finding is not counted as unblocked", () => {
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "process_gap" }];
+    const attackPaths: AttackPathInput[] = [{ result: "possible", relatedFindingIds: ["F-1"] }];
+    const result = evaluateRelease(baseInputs({ findings, attackPaths }));
+    expect(result.unblockedCriticalAttackPaths).toBe(0);
+  });
+
+  it("mixed set: only the confirmed_vulnerability finding counts toward criticalFindings/highFindings", () => {
+    const findings: FindingInput[] = [
+      { findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "confirmed_vulnerability" },
+      { findingId: "F-2", controlIds: ["X-002"], status: "open", severity: "high", type: "control_gap" },
+      { findingId: "F-3", controlIds: ["X-003"], status: "open", severity: "high", type: "needs_validation" },
+    ];
+    const result = evaluateRelease(baseInputs({ findings }));
+    expect(result.criticalFindings).toBe(1);
+    expect(result.highFindings).toBe(0);
+    expect(result.result).toBe("blocked");
   });
 });
 
@@ -97,7 +133,7 @@ describe("evaluateRelease — incidentResponseVerified / backupRestoreVerified",
 
 describe("evaluateRelease — unblockedCriticalAttackPaths / residualRisksAccepted", () => {
   it("counts a possible attack path only when it relates to a critical finding", () => {
-    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical" }];
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "confirmed_vulnerability" }];
     const attackPaths: AttackPathInput[] = [
       { result: "possible", relatedFindingIds: ["F-1"] },
       { result: "blocked", relatedFindingIds: ["F-1"] },
@@ -114,6 +150,27 @@ describe("evaluateRelease — unblockedCriticalAttackPaths / residualRisksAccept
       { controlId: "X-003", status: "PASS" },
     ];
     expect(evaluateRelease(baseInputs({ assessments })).residualRisksAccepted).toBe(2);
+  });
+});
+
+describe("evaluateRelease — coverage threshold / indeterminate", () => {
+  it("below MIN_COVERAGE_FOR_APPROVAL_PERCENT with zero findings -> indeterminate, not approved", () => {
+    const belowThreshold: ScoreInput = { coverage: { coveragePercent: MIN_COVERAGE_FOR_APPROVAL_PERCENT - 1 } };
+    const result = evaluateRelease(baseInputs({ score: belowThreshold }));
+    expect(result.result).toBe("indeterminate");
+  });
+
+  it("at or above MIN_COVERAGE_FOR_APPROVAL_PERCENT with zero findings -> approved", () => {
+    const atThreshold: ScoreInput = { coverage: { coveragePercent: MIN_COVERAGE_FOR_APPROVAL_PERCENT } };
+    const result = evaluateRelease(baseInputs({ score: atThreshold }));
+    expect(result.result).toBe("approved");
+  });
+
+  it("low coverage does not override an actual blocked verdict", () => {
+    const belowThreshold: ScoreInput = { coverage: { coveragePercent: 10 } };
+    const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "confirmed_vulnerability" }];
+    const result = evaluateRelease(baseInputs({ score: belowThreshold, findings }));
+    expect(result.result).toBe("blocked");
   });
 });
 
