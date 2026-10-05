@@ -90,17 +90,36 @@ append/update by `riskAcceptanceId`):
   (needed by `revoke_risk_acceptance`, §3.1's third tool — the existing
   `reason` field is the *original* acceptance justification and must not be
   overwritten by a revoke).
+- New `RiskAcceptanceService` (`src/service/risk-acceptance-service.ts`),
+  same constructor shape as `AssessmentService`/`AnalysisService`
+  (`repository`, injectable `now`). **Added after this design's final
+  review round** — an earlier draft had the two new MCP tools call
+  `repository` directly, reasoned as acceptable since neither tool does
+  more than allocate an ID and save; reviewer pushed back that
+  `RiskAcceptance` already has real lifecycle and validity semantics
+  (effective validity, revoke transitions) that qualify it for the same
+  service-layer boundary every other entity in this codebase gets, and
+  that a tool-layer special case invites exactly the kind of drift a
+  thin, consistent boundary prevents. Every other MCP tool in this
+  codebase routes through a service; these two now do as well.
 - New MCP tool `record_risk_acceptance { projectId, controlId, findingIds?,
-  reason, compensatingControls?, expiresAt }` — `approvedBy`/`approvedAt`
-  are agent-populated (`AGENT_IDENTITY`/now), same pattern as
-  `record_finding`. ID allocation: `nextSequentialId("RA", existing.length)`.
+  reason, compensatingControls?, expiresAt }` → `RiskAcceptanceService.record(...)`.
+  `approvedBy`/`approvedAt` are agent-populated (`AGENT_IDENTITY`/now), same
+  pattern as `record_finding`. ID allocation: `nextSequentialId("RA", existing.length)`.
+  The input shape never accepts `status` or `approvedAt` from the caller —
+  both are always server-set — so the specific "caller dictates its own
+  approval" bypass is not reachable through this tool regardless of the
+  service-boundary question; the governance note below is about a
+  different risk (who may call the tool at all), not this one.
 - New MCP tool `revoke_risk_acceptance { projectId, riskAcceptanceId,
-  revokedReason }` — loads the existing record, sets
-  `status: "revoked"`, `revokedAt: now()`, `revokedReason: input.revokedReason`,
-  saves it back. Rejects (`NOT_FOUND`) if the ID doesn't exist. **Added to
-  scope after this design's GPT review round** — originally deferred as
-  YAGNI, reversed because without it there is no way to undo an improperly
-  or prematurely approved risk acceptance before its natural expiry, which
+  revokedReason }` → `RiskAcceptanceService.revoke(...)` — loads the
+  existing record, sets `status: "revoked"`, `revokedAt: now()`,
+  `revokedReason: input.revokedReason`, saves it back. Rejects
+  (`NOT_FOUND`) if the ID doesn't exist; idempotent (returns the existing
+  record unchanged) if it's already `"revoked"`. **Added to scope after
+  the design's second review round** — originally deferred as YAGNI,
+  reversed because without it there is no way to undo an improperly or
+  prematurely approved risk acceptance before its natural expiry, which
   is a real gap for a control that gates production release.
 
 **Pure validity check.** `src/core/risk-acceptance.ts` (new, pure, no I/O —
@@ -267,18 +286,24 @@ evaluation can never see two different answers for the same expiry
 boundary:
 
 ```ts
-// src/service/analysis-service.ts, inside evaluateRelease(projectId)
-const riskAcceptances = await this.repository.getRiskAcceptances(projectId);
-const riskAcceptanceById = new Map(riskAcceptances.map((ra) => [ra.riskAcceptanceId, ra]));
-const now = this.now(); // captured once; reused for every assessment below
-
-const normalizedAssessments: ControlAssessmentInput[] = assessments.map((a) => {
-  const stale = a.profileRevision !== project.profileRevision;
-  const ra = a.riskAcceptanceId ? riskAcceptanceById.get(a.riskAcceptanceId) : undefined;
-  const acceptedRiskInvalid = a.status === "ACCEPTED_RISK" && !(ra && isRiskAcceptanceEffectivelyValid(ra, now));
-  return { controlId: a.controlId, status: stale || acceptedRiskInvalid ? "NOT_TESTED" : a.status };
-});
+// src/core/risk-acceptance.ts — shared, pure, no I/O
+export function translateAssessmentsForTrust(
+  assessments: ControlAssessment[],
+  currentProfileRevision: number,
+  riskAcceptances: RiskAcceptance[],
+  nowIso: string
+): { controlId: string; status: ControlAssessment["status"] }[] {
+  const riskAcceptanceById = new Map(riskAcceptances.map((ra) => [ra.riskAcceptanceId, ra]));
+  return assessments.map((a) => {
+    const stale = a.profileRevision !== currentProfileRevision;
+    const ra = a.riskAcceptanceId ? riskAcceptanceById.get(a.riskAcceptanceId) : undefined;
+    const acceptedRiskInvalid = a.status === "ACCEPTED_RISK" && !(ra && isRiskAcceptanceEffectivelyValid(ra, nowIso));
+    return { controlId: a.controlId, status: stale || acceptedRiskInvalid ? "NOT_TESTED" : a.status };
+  });
+}
 ```
+
+This is a **shared** function, not duplicated per caller, for a reason found during this spec's final review round: `AnalysisService.evaluateRelease` is not the only place in this codebase that independently recomputes a score and a release evaluation from raw assessments — `ReportService.generate` (backing the `generate_report` MCP tool) does the exact same `calculateScore` + `evaluateRelease` pair, from the exact same raw `getControlAssessments` read, entirely independently of `AnalysisService`. Without this fix also applying there, `generate_report` would keep producing a stale-blind `releaseEvaluation`/`score` inside every saved `ProjectReport`, while `evaluate_release` and `get_score` called directly would (correctly, or by design) differ — a real, user-visible inconsistency between two tools describing the same project at the same moment. `ReportService.generate` is updated to call this same `translateAssessmentsForTrust` and feed its result to both its own `calculateScore` and `evaluateRelease` calls, exactly mirroring `AnalysisService.evaluateRelease`'s fix. One `now` value is still captured once per top-level call (`evaluateRelease(projectId)` or `generate(input)`) and passed into `translateAssessmentsForTrust` as `nowIso` — never re-derived per assessment — so a single call can never see two different answers for the same expiry boundary.
 
 A stale assessment or an assessment whose `ACCEPTED_RISK` is no longer
 backed by a valid `RiskAcceptance` is translated to `"NOT_TESTED"` for
@@ -321,8 +346,9 @@ to be freshness-aware, because only that score drives a release decision.
 this spec.** No new parameters, no new fields on either file's
 `ControlAssessmentInput`, no new logic in the Control Gate or `calculateScore`
 itself. Everything in this section is a change to *how*
-`src/service/analysis-service.ts` calls those two already-exported pure
-functions, plus the new `src/core/risk-acceptance.ts` helper.
+`src/service/analysis-service.ts` and `src/service/report-service.ts` call
+those two already-exported pure functions, plus the new
+`src/core/risk-acceptance.ts` helpers.
 
 **RiskAcceptance scope is profile-revision-independent.** A `RiskAcceptance`
 accepts risk on a control's current `FAIL` state until `expiresAt`,
@@ -363,25 +389,37 @@ for manual review rather than guessed at.
   (upsert by `riskAcceptanceId`).
 - `ControlAssessment` gains two new required fields: `runId: string` and
   `profileRevision: number`.
-- Two new MCP tools: `record_risk_acceptance`, `revoke_risk_acceptance`.
+- New `RiskAcceptanceService` (`src/service/risk-acceptance-service.ts`),
+  exposing `record(input): Promise<RiskAcceptance>` and
+  `revoke(input): Promise<RiskAcceptance>`.
+- Two new MCP tools: `record_risk_acceptance`, `revoke_risk_acceptance`,
+  both thin wrappers around `RiskAcceptanceService`.
   `revoke_risk_acceptance` accepts any non-`"revoked"` status as its
   starting state; a second revoke of an already-`"revoked"` record is
   idempotent (returns the existing record unchanged, not an error — a
   retried tool call should never fail just because it succeeded already).
 - `src/core/risk-acceptance.ts` (new file): exports
-  `isRiskAcceptanceEffectivelyValid(ra: RiskAcceptance, nowIso: string): boolean`.
-- `AnalysisService`'s constructor gains an optional `now: () => string`
-  parameter (default `() => new Date().toISOString()`), matching
-  `AssessmentService`'s existing constructor shape.
+  `isRiskAcceptanceEffectivelyValid(ra: RiskAcceptance, nowIso: string): boolean`
+  and `translateAssessmentsForTrust(assessments, currentProfileRevision, riskAcceptances, nowIso)`
+  (§3.3) — the second is shared between `AnalysisService.evaluateRelease`
+  and `ReportService.generate`, both of which independently recompute a
+  score and release evaluation from raw assessments and both of which
+  need the identical trust translation applied before doing so.
+- `AnalysisService`'s and `ReportService`'s constructors both already have
+  (or, for `AnalysisService`, gain) an optional `now: () => string`
+  parameter (default `() => new Date().toISOString()`) — `ReportService`
+  already had this; `AnalysisService` gains it to match.
 - `src/core/release-evaluator.ts`: **no changes** — its exported
   `ControlAssessmentInput` and `evaluateRelease` signature are untouched.
 - `src/core/score.ts`: **no changes to the file itself** — `calculateScore`'s
   exported signature and logic are untouched. What changes is who calls it
-  and with what: `AnalysisService.evaluateRelease` now calls it directly
-  with the staleness/validity-translated assessments array (§3.3), instead
-  of delegating to `this.getScore(projectId)`, which continues to compute
-  coverage from raw assessments for its own (unaffected) standalone callers
-  (the `get_score` MCP tool — see §7).
+  and with what: both `AnalysisService.evaluateRelease` and
+  `ReportService.generate` now call it directly with the staleness/validity-
+  translated assessments array (§3.3), instead of (in `AnalysisService`'s
+  case) delegating to `this.getScore(projectId)`, or (in `ReportService`'s
+  case) building its own separate raw-assessments call as it already did.
+  The standalone `get_score` MCP tool is unaffected and keeps computing
+  coverage from raw assessments (see §7).
 
 ## 5. Testing Strategy
 
@@ -507,6 +545,49 @@ that review relationship). The reviewer:
   real improvement — `revoked` already existing in the schema's `status`
   enum with no way to reach it was a worse state than not having the
   field at all.
+
+**Third review round, against the finished implementation plan (same day).**
+Verdict: ready to implement after two required changes, both adopted.
+
+- **Objected to the two new MCP tools calling `repository` directly**,
+  reasoned in the plan as acceptable since neither tool does more than
+  allocate an ID and save. Reviewer: `RiskAcceptance` already has real
+  lifecycle and validity semantics (effective validity, revoke
+  transitions) that qualify it for the same service-layer boundary every
+  other entity in this codebase gets, and a tool-layer special case
+  invites exactly the kind of drift a thin, consistent boundary prevents.
+  Adopted: §3.1 now specifies `RiskAcceptanceService`, matching
+  `AssessmentService`/`AnalysisService`'s existing shape.
+- **Found a real gap the author's plan had missed entirely**: `evaluate_release`
+  (via `AnalysisService`) was not the only place in this codebase that
+  independently recomputes a score and release evaluation from raw
+  assessments — `ReportService.generate` (backing `generate_report`) does
+  the identical `calculateScore` + `evaluateRelease` pair from its own
+  separate raw `getControlAssessments` read, entirely independently of
+  `AnalysisService`. Confirmed by reading `src/service/report-service.ts`
+  directly: it does not call `AnalysisService` at all, it duplicates the
+  same two-function pattern inline. Left unfixed, `generate_report` would
+  keep producing a stale-blind `releaseEvaluation`/`score` inside every
+  saved `ProjectReport` — the exact inconsistency class this spec exists
+  to close, reintroduced through a door the plan never looked at. Adopted:
+  §3.3's translation step is now a shared `translateAssessmentsForTrust`
+  function in `src/core/risk-acceptance.ts`, called from both
+  `AnalysisService.evaluateRelease` and `ReportService.generate`, rather
+  than inline logic duplicated (and now fixed in only one place) across
+  both callers.
+- Confirmed the Task 3 design (shared translated array fed to both
+  `calculateScore` and core `evaluateRelease`) is exactly the structure
+  intended, no changes needed there beyond extending it to `ReportService`.
+- Confirmed the Task 4 migration script reading raw JSON directly (not
+  through `JsonRepository`) is a legitimate, narrowly-scoped exception —
+  the data being migrated doesn't yet satisfy the repository's own current
+  TS types, so going through the repository class isn't actually possible
+  until after the migration runs. Recommended hardening the script with
+  post-transformation schema validation and atomic (tmp-file-then-rename)
+  writes, matching `writeJsonAtomic`'s existing pattern elsewhere in this
+  codebase, rather than a direct `writeFileSync`.
+- Confirmed `tsconfig.json`/`tsconfig.build.json` split and the `tsx`
+  devDependency addition are both correct as planned.
 
 ## 7. Out of Scope
 
