@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ReportService } from "../../src/service/report-service.js";
+import { RELEASE_BLOCKING_CONTROLS } from "../../src/core/release-evaluator.js";
 import { FakeRepository } from "./fake-repository.js";
 
 const NOW = "2026-09-30T00:00:00.000Z";
@@ -23,7 +24,7 @@ async function makeGeneratableProject(repo: FakeRepository) {
     catalogVersion: "9.9.9", batchIds: [], status: "running", startedAt: NOW, completedAt: null,
   });
   // All 8 RELEASE_BLOCKING_CONTROLS must have assessments for an "approved" result
-  const blockingControls = ["IAM-AUTH-003", "IAM-AUTH-005", "IAM-AUTHZ-001", "IAM-AUTHZ-002", "DATA-ENC-002", "DATA-KEYSEP-001", "OPS-BACKUP-TEST-001", "GOV-IR-001"];
+  const blockingControls = [...RELEASE_BLOCKING_CONTROLS];
   for (let i = 0; i < blockingControls.length; i++) {
     await repo.saveControlAssessment({
       assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,

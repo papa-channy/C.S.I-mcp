@@ -4,6 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AnalysisService } from "../../../src/service/analysis-service.js";
 import { ReportService } from "../../../src/service/report-service.js";
+import { RELEASE_BLOCKING_CONTROLS } from "../../../src/core/release-evaluator.js";
 import { FakeRepository } from "../../service/fake-repository.js";
 import { registerGetScoreTool } from "../../../src/mcp/tools/get-score.js";
 import { registerEvaluateReleaseTool } from "../../../src/mcp/tools/evaluate-release.js";
@@ -34,7 +35,7 @@ async function makeConnectedClient() {
   repo.controls = [];
   await repo.saveRun({ runId: "RUN-1", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1, catalogVersion: "9.9.9", batchIds: [], status: "running", startedAt: NOW, completedAt: null });
   // All 8 RELEASE_BLOCKING_CONTROLS must have assessments for an "approved" result
-  const blockingControls = ["IAM-AUTH-003", "IAM-AUTH-005", "IAM-AUTHZ-001", "IAM-AUTHZ-002", "DATA-ENC-002", "DATA-KEYSEP-001", "OPS-BACKUP-TEST-001", "GOV-IR-001"];
+  const blockingControls = [...RELEASE_BLOCKING_CONTROLS];
   for (let i = 0; i < blockingControls.length; i++) {
     await repo.saveControlAssessment({
       assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,

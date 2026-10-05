@@ -118,6 +118,11 @@ export function evaluateRelease(inputs: {
   // a stale PASS from before a profile change is trusted the same as a fresh one.
   // Both are pre-existing properties of the assessment model this Control Gate
   // builds on, not introduced here — fixing either needs its own design pass.
+  // A third, related gap found during final whole-branch review: "N/A" status
+  // requires no evidence at all (unlike PASS/FAIL/PARTIAL) and is never
+  // cross-checked against the control's applicability.finalResult, so it is
+  // actually the cheapest of the three bypasses — cheaper even than
+  // ACCEPTED_RISK, which at least requires a riskAcceptanceId.
   const blockingControlFailures: string[] = [];
   const blockingControlsNotVerified: string[] = [];
   for (const controlId of RELEASE_BLOCKING_CONTROLS) {

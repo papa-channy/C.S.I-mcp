@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AnalysisService } from "../../src/service/analysis-service.js";
+import { RELEASE_BLOCKING_CONTROLS } from "../../src/core/release-evaluator.js";
 import { FakeRepository } from "./fake-repository.js";
 
 function setScoreModel(repo: FakeRepository) {
@@ -55,7 +56,7 @@ describe("AnalysisService.evaluateRelease", () => {
     await makeProject(repo, "SVL-3");
     repo.controls = [];
     // All 8 RELEASE_BLOCKING_CONTROLS must have assessments for an "approved" result
-    const blockingControls = ["IAM-AUTH-003", "IAM-AUTH-005", "IAM-AUTHZ-001", "IAM-AUTHZ-002", "DATA-ENC-002", "DATA-KEYSEP-001", "OPS-BACKUP-TEST-001", "GOV-IR-001"];
+    const blockingControls = [...RELEASE_BLOCKING_CONTROLS];
     for (let i = 0; i < blockingControls.length; i++) {
       await repo.saveControlAssessment({
         assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,

@@ -252,6 +252,22 @@ no computation on them.
   8 listed controls. Fixing this needs a schema change
   (`ControlAssessment.profileRevision` or equivalent) plus a staleness
   check somewhere in the read path — a real follow-up, not in scope here.
+- **Cross-checking a recorded `N/A` status against the control's actual
+  `applicability.finalResult`.** Found during *final whole-branch review*
+  (not the second external review round that found the two gaps above).
+  `VERDICTS_REQUIRING_METHODOLOGY_EVIDENCE` in `record_assessment`
+  excludes `N/A`, so `record_assessment { status: "N/A", notes: "n/a" }`
+  requires no evidence at all — not even a `riskAcceptanceId`, which
+  `ACCEPTED_RISK` demands — and nothing anywhere verifies the control is
+  actually inapplicable to the project. For any of the 8
+  `RELEASE_BLOCKING_CONTROLS`, this makes `N/A` the cheapest of the three
+  known bypasses of the Control Gate: cheaper than `ACCEPTED_RISK` (which
+  at least requires a non-empty `riskAcceptanceId` string) and cheaper
+  than a stale PASS (which at least requires a PASS to have been real at
+  some point). Fixing this properly needs threading `applicability` into
+  the Control Gate's inputs (`ControlAssessmentInput` and whatever
+  constructs it in `src/service/*.ts`) plus its own design pass — out of
+  scope for this spec.
 
 ## 8. Adoption Log (external review)
 

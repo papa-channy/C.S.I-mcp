@@ -369,6 +369,12 @@ describe("evaluateRelease — RELEASE_BLOCKING_CONTROLS drift guard", () => {
       expect(["draft", "active"]).toContain(control?.status);
     }
   });
+
+  it("every RELEASE_GATE_CONTROL_MAP value is a member of RELEASE_BLOCKING_CONTROLS (the dead-calculation fix depends on this)", () => {
+    for (const controlId of Object.values(RELEASE_GATE_CONTROL_MAP)) {
+      expect(RELEASE_BLOCKING_CONTROLS.has(controlId), `${controlId} must be in RELEASE_BLOCKING_CONTROLS`).toBe(true);
+    }
+  });
 });
 
 describe("evaluateRelease — metamorphic regression: a blocking control's FAIL must actually change result", () => {

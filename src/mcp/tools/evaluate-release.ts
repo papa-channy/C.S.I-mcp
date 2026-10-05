@@ -14,11 +14,21 @@ export function registerEvaluateReleaseTool(server: McpServer, service: Analysis
     {
       title: "Evaluate Release",
       description:
-        "Evaluate gate-4 production-release readiness for a project. `result` (\"approved\"|\"blocked\") is " +
-        "computed only from criticalFindings/highFindings coverage. `incidentResponseVerified` and " +
-        "`backupRestoreVerified` are informational sub-checks (whether the GOV-IR-001/OPS-BACKUP-TEST-001 " +
-        "controls specifically PASSed) — they do NOT gate `result` on their own, so `result: \"approved\"` " +
-        "can appear alongside either of them being false; check them explicitly if they matter for your use case.",
+        "Evaluate gate-4 production-release readiness for a project. `result` (\"approved\"|\"blocked\"|" +
+        "\"indeterminate\") is the worst-wins combination of three gates: a Finding Gate (open/in-progress " +
+        "confirmed_vulnerability findings at critical/high severity — any blocks), a Control Gate (a fixed " +
+        "set of release-blocking controls — any at FAIL blocks; any PARTIAL/NOT_TESTED/unassessed makes it " +
+        "indeterminate instead of approved), and a Coverage Gate (assessment coverage below threshold makes " +
+        "it indeterminate, never downgrading an already-blocked result). `blockingControlFailures` and " +
+        "`blockingControlsNotVerified` are arrays of controlIds — the release-blocking controls that are " +
+        "currently FAILing / not yet verified (PARTIAL, NOT_TESTED, or never assessed), respectively — so " +
+        "callers can see exactly which controls drove the Control Gate's contribution to `result`. " +
+        "`incidentResponseVerified` and `backupRestoreVerified` are informational booleans for two of those " +
+        "same controls specifically (GOV-IR-001/OPS-BACKUP-TEST-001 PASSed) — redundant with, but narrower " +
+        "than, the two array fields above (which cover all release-blocking controls, not just these two); " +
+        "both controls DO now gate `result` via the Control Gate, so a FAIL on either forces `result: " +
+        "\"blocked\"`. Check the array fields for the full picture; check these two booleans only if your " +
+        "use case specifically cares about incident-response/backup-restore readiness by name.",
       inputSchema: evaluateReleaseInputShape,
     },
     async ({ projectId }) => {
