@@ -26,6 +26,7 @@ describe("AnalysisService.getScore", () => {
     repo.controls = [{ controlId: "C-001", version: 1, status: "active", title: "t", domain: "appsec", subdomain: "s", layer: "prevent", group: "g", applicability: { when: { fact: "x", operator: "eq", value: 1 } } }];
     await repo.saveControlAssessment({
       assessmentId: "A-1", projectId: "PRJ-1", controlId: "C-001", controlVersion: 1,
+      runId: "RUN-1", profileRevision: 1,
       applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
       status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: "2026-09-30T00:00:00.000Z", nextReviewAt: null, notes: null,
     });
@@ -60,6 +61,7 @@ describe("AnalysisService.evaluateRelease", () => {
     for (let i = 0; i < blockingControls.length; i++) {
       await repo.saveControlAssessment({
         assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,
+        runId: "RUN-1", profileRevision: 1,
         applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
         status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: "2026-09-30T00:00:00.000Z", nextReviewAt: null, notes: null,
       });
@@ -85,6 +87,7 @@ describe("AnalysisService.evaluateRelease", () => {
     repo.controls = [{ controlId: "C-001", version: 1, status: "active", title: "t", domain: "appsec", subdomain: "s", layer: "prevent", group: "g", applicability: { when: { fact: "x", operator: "eq", value: 1 } } }];
     await repo.saveControlAssessment({
       assessmentId: "A-1", projectId: "PRJ-1", controlId: "C-001", controlVersion: 1,
+      runId: "RUN-1", profileRevision: 1,
       applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
       status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: "2026-09-30T00:00:00.000Z", nextReviewAt: null, notes: null,
     });

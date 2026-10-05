@@ -6,6 +6,8 @@ const baseAssessment = {
   projectId: "proj-001",
   controlId: "IAM-AUTH-005",
   controlVersion: 1,
+  runId: "RUN-001",
+  profileRevision: 1,
   applicability: {
     autoResult: "applicable",
     finalResult: "applicable",
@@ -35,7 +37,10 @@ describe("control-assessment-schema", () => {
 
   it("accepts status N/A with notes", () => {
     const validate = compileSchemaFromFile("data/schemas/control-assessment-schema.json");
-    const doc = { ...baseAssessment, status: "N/A", notes: "No admin interface exists in this project." };
+    const doc = {
+      ...baseAssessment, status: "N/A", notes: "No admin interface exists in this project.",
+      applicability: { ...baseAssessment.applicability, finalResult: "not_applicable" },
+    };
     expect(validate(doc), JSON.stringify(validate.errors)).toBe(true);
   });
 
@@ -95,5 +100,26 @@ describe("control-assessment-schema", () => {
   it("rejects an unknown status value", () => {
     const validate = compileSchemaFromFile("data/schemas/control-assessment-schema.json");
     expect(validate({ ...baseAssessment, status: "MAYBE" })).toBe(false);
+  });
+
+  it("rejects status N/A with applicability.finalResult still 'applicable'", () => {
+    const validate = compileSchemaFromFile("data/schemas/control-assessment-schema.json");
+    const doc = {
+      ...baseAssessment, status: "N/A", notes: "attempted bypass",
+      applicability: { ...baseAssessment.applicability, finalResult: "applicable" },
+    };
+    expect(validate(doc)).toBe(false);
+  });
+
+  it("accepts status N/A when applicability.finalResult is 'not_applicable'", () => {
+    const validate = compileSchemaFromFile("data/schemas/control-assessment-schema.json");
+    const doc = {
+      ...baseAssessment, status: "N/A", notes: "genuinely not applicable",
+      applicability: {
+        autoResult: "applicable", finalResult: "not_applicable", matchedRules: [],
+        source: "manual_override", reason: "no admin interface exists in this deployment",
+      },
+    };
+    expect(validate(doc), JSON.stringify(validate.errors)).toBe(true);
   });
 });

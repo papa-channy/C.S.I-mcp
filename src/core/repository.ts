@@ -63,6 +63,8 @@ export interface ControlAssessment {
   projectId: string;
   controlId: string;
   controlVersion: number;
+  runId: string;
+  profileRevision: number;
   applicability: { autoResult: string; finalResult: string; matchedRules: string[]; source: "automatic" | "manual_override"; reason?: string };
   status: "PASS" | "FAIL" | "PARTIAL" | "N/A" | "NOT_TESTED" | "ACCEPTED_RISK";
   evidenceIds: string[];

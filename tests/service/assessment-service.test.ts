@@ -14,6 +14,18 @@ function control(overrides: Partial<Control> = {}): Control {
   };
 }
 
+async function makeValidRiskAcceptance(repo: FakeRepository, overrides: Partial<import("../../src/core/repository.js").RiskAcceptance> = {}) {
+  const ra = {
+    riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: "APP-INPUT-VAL-001", findingIds: [],
+    reason: "compensating control in place", compensatingControls: [],
+    approvedBy: "csi-mcp-agent", approvedAt: "2026-09-29T00:00:00.000Z", expiresAt: "2026-12-30T00:00:00.000Z",
+    reviewDate: null, status: "active" as const, revokedAt: null, revokedReason: null,
+    ...overrides,
+  };
+  await repo.saveRiskAcceptance("PRJ-1", ra);
+  return ra;
+}
+
 async function makeProjectRepo() {
   const repo = new FakeRepository();
   repo.catalogVersion = "9.9.9";
@@ -83,6 +95,7 @@ describe("AssessmentService.listControls", () => {
     repo.controls = [control()];
     await repo.saveControlAssessment({
       assessmentId: "A-1", projectId: "PRJ-1", controlId: "APP-INPUT-VAL-001", controlVersion: 1,
+      runId: "RUN-1", profileRevision: 3,
       applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
       status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null,
       owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: FIXED_NOW, nextReviewAt: null, notes: null,
@@ -134,6 +147,7 @@ describe("AssessmentService.listControls", () => {
     repo.controls = [control()];
     await repo.saveControlAssessment({
       assessmentId: "A-1", projectId: "PRJ-1", controlId: "APP-INPUT-VAL-001", controlVersion: 1,
+      runId: "RUN-1", profileRevision: 3,
       applicability: { autoResult: "applicable", finalResult: "not_applicable", matchedRules: [], source: "manual_override", reason: "decommissioned" },
       status: "N/A", evidenceIds: [], findingIds: [], riskAcceptanceId: null,
       owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: FIXED_NOW, nextReviewAt: null, notes: "decommissioned",
@@ -274,12 +288,13 @@ describe("AssessmentService.recordAssessment", () => {
     })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
-  it("accepts N/A with notes", async () => {
+  it("accepts N/A with notes when applicability is overridden to not_applicable", async () => {
     const repo = await makeProjectRepo();
     repo.controls = [control()];
     const service = new AssessmentService(repo, () => FIXED_NOW);
     const assessment = await service.recordAssessment({
-      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A", evidence: [], notes: "not applicable here",
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A", evidence: [],
+      notes: "not applicable here", applicabilityOverride: { result: "not_applicable", reason: "not applicable here" },
     });
     expect(assessment.status).toBe("N/A");
     expect(assessment.notes).toBe("not applicable here");
@@ -362,6 +377,136 @@ describe("AssessmentService.recordAssessment", () => {
     expect(allEvidence).toHaveLength(2);
     expect(allEvidence[0].evidenceId).toBe("EVD-001");
     expect(allEvidence[1].evidenceId).toBe("EVD-002");
+  });
+});
+
+describe("AssessmentService.recordAssessment — ACCEPTED_RISK validation", () => {
+  it("accepts ACCEPTED_RISK when the RiskAcceptance exists, scopes to this control, and is effectively valid", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    await makeValidRiskAcceptance(repo);
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "ACCEPTED_RISK",
+      evidence: [], riskAcceptanceId: "RA-001",
+    });
+    expect(assessment.status).toBe("ACCEPTED_RISK");
+    expect(assessment.riskAcceptanceId).toBe("RA-001");
+  });
+
+  it("rejects ACCEPTED_RISK when riskAcceptanceId does not resolve to an existing RiskAcceptance", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "ACCEPTED_RISK",
+      evidence: [], riskAcceptanceId: "RA-999",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects ACCEPTED_RISK when the RiskAcceptance's controlId does not match the control being assessed", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control(), control({ controlId: "OPS-BACKUP-TEST-001", domain: "operations" })];
+    await makeValidRiskAcceptance(repo, { controlId: "OPS-BACKUP-TEST-001" });
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "ACCEPTED_RISK",
+      evidence: [], riskAcceptanceId: "RA-001",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects ACCEPTED_RISK when the RiskAcceptance is expired", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    await makeValidRiskAcceptance(repo, { expiresAt: "2026-09-29T00:00:00.000Z" }); // before FIXED_NOW
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "ACCEPTED_RISK",
+      evidence: [], riskAcceptanceId: "RA-001",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects ACCEPTED_RISK when the RiskAcceptance is revoked", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    await makeValidRiskAcceptance(repo, { status: "revoked", revokedAt: FIXED_NOW, revokedReason: "remediated" });
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "ACCEPTED_RISK",
+      evidence: [], riskAcceptanceId: "RA-001",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+});
+
+describe("AssessmentService.recordAssessment — N/A cross-check against applicability", () => {
+  it("accepts N/A with just notes when the engine already says not_applicable", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control({ applicability: { when: { fact: "features.authentication", operator: "eq", value: false } } })];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A",
+      evidence: [], notes: "not applicable per profile",
+    });
+    expect(assessment.status).toBe("N/A");
+    expect(assessment.applicability.finalResult).toBe("not_applicable");
+  });
+
+  it("rejects N/A when the engine says applicable and no applicabilityOverride is given", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()]; // project's features.authentication: true -> autoResult applicable
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A",
+      evidence: [], notes: "trying to skip this",
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects N/A when the engine says applicable and applicabilityOverride.result is not 'not_applicable'", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A",
+      evidence: [], notes: "x", applicabilityOverride: { result: "unknown", reason: "unsure" },
+    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("accepts N/A when the engine says applicable but applicabilityOverride forces not_applicable with a reason", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "N/A",
+      evidence: [], notes: "x",
+      applicabilityOverride: { result: "not_applicable", reason: "this instance has authentication disabled entirely despite the feature flag" },
+    });
+    expect(assessment.status).toBe("N/A");
+    expect(assessment.applicability.finalResult).toBe("not_applicable");
+    expect(assessment.applicability.source).toBe("manual_override");
+  });
+});
+
+describe("AssessmentService.recordAssessment — run/profile revision consistency", () => {
+  it("rejects when the run's profileRevision no longer matches the project's current profileRevision", async () => {
+    const repo = await makeProjectRepo(); // project at profileRevision 3, RUN-1 also at 3
+    repo.controls = [control()];
+    const project = await repo.getProject("PRJ-1");
+    await repo.saveProject({ ...project, profileRevision: 4 }); // project moves on; RUN-1 still says 3
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    await expect(service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "NOT_TESTED", evidence: [],
+    })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
+  it("stamps the saved assessment's profileRevision/runId from the run, not a fresh project read", async () => {
+    const repo = await makeProjectRepo();
+    repo.controls = [control()];
+    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const assessment = await service.recordAssessment({
+      projectId: "PRJ-1", runId: "RUN-1", controlId: "APP-INPUT-VAL-001", status: "NOT_TESTED", evidence: [],
+    });
+    expect(assessment.runId).toBe("RUN-1");
+    expect(assessment.profileRevision).toBe(3);
   });
 });
 

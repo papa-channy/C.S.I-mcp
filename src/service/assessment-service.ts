@@ -2,6 +2,7 @@ import type { AssessmentRun, Control, ControlAssessment, Evidence, EvidenceType,
 import type { AssessmentPlan } from "../core/plan-expander.js";
 import { evaluateApplicability, type Verdict } from "../core/applicability.js";
 import { withNotFound, ServiceError } from "./errors.js";
+import { isRiskAcceptanceEffectivelyValid } from "../core/risk-acceptance.js";
 import { generateUuid, nextSequentialId } from "./ids.js";
 import { calculateCriticality, type SeverityFactors } from "../core/criticality.js";
 import { AGENT_IDENTITY, CRITICALITY_FORMULA_ID } from "./constants.js";
@@ -170,9 +171,18 @@ export class AssessmentService {
     const project = await withNotFound(
       this.repository.getProject(input.projectId), `Project "${input.projectId}" not found`, { projectId: input.projectId }
     );
-    await withNotFound(
+    const run = await withNotFound(
       this.repository.getRun(input.projectId, input.runId), `Run "${input.runId}" not found`, { projectId: input.projectId, runId: input.runId }
     );
+    if (run.profileRevision !== project.profileRevision) {
+      throw new ServiceError(
+        "PRECONDITION_FAILED",
+        `Run "${input.runId}" was started against profileRevision ${run.profileRevision}, but project "${input.projectId}" is now at profileRevision ${project.profileRevision} — start a new assessment run instead of continuing this one`,
+        { projectId: input.projectId, runId: input.runId, runProfileRevision: run.profileRevision, currentProfileRevision: project.profileRevision }
+      );
+    }
+
+    const { autoResult, matchedRules } = evaluateApplicability(control, project.profile);
 
     // PASS, FAIL, and PARTIAL all assert a definitive, code-level fact about the
     // control's actual state — unlike NOT_TESTED (an honest abstention), N/A
@@ -203,11 +213,42 @@ export class AssessmentService {
     if (input.status === "N/A" && !input.notes) {
       throw new ServiceError("VALIDATION_ERROR", 'status "N/A" requires non-empty notes', { controlId: input.controlId });
     }
-    if (input.status === "ACCEPTED_RISK" && !input.riskAcceptanceId) {
-      throw new ServiceError("VALIDATION_ERROR", 'status "ACCEPTED_RISK" requires riskAcceptanceId', { controlId: input.controlId });
+    if (input.status === "N/A" && autoResult !== "not_applicable") {
+      if (!input.applicabilityOverride || input.applicabilityOverride.result !== "not_applicable") {
+        throw new ServiceError(
+          "VALIDATION_ERROR",
+          'status "N/A" on a control the engine considers applicable requires applicabilityOverride with result "not_applicable" and a reason explaining why',
+          { controlId: input.controlId, autoResult }
+        );
+      }
+    }
+    if (input.status === "ACCEPTED_RISK") {
+      if (!input.riskAcceptanceId) {
+        throw new ServiceError("VALIDATION_ERROR", 'status "ACCEPTED_RISK" requires riskAcceptanceId', { controlId: input.controlId });
+      }
+      const riskAcceptances = await this.repository.getRiskAcceptances(input.projectId);
+      const riskAcceptance = riskAcceptances.find((ra) => ra.riskAcceptanceId === input.riskAcceptanceId);
+      if (!riskAcceptance) {
+        throw new ServiceError(
+          "VALIDATION_ERROR", `riskAcceptanceId "${input.riskAcceptanceId}" does not exist for this project`,
+          { controlId: input.controlId, riskAcceptanceId: input.riskAcceptanceId }
+        );
+      }
+      if (riskAcceptance.controlId !== input.controlId) {
+        throw new ServiceError(
+          "VALIDATION_ERROR",
+          `riskAcceptanceId "${input.riskAcceptanceId}" is scoped to control "${riskAcceptance.controlId}", not "${input.controlId}"`,
+          { controlId: input.controlId, riskAcceptanceId: input.riskAcceptanceId }
+        );
+      }
+      if (!isRiskAcceptanceEffectivelyValid(riskAcceptance, this.now())) {
+        throw new ServiceError(
+          "VALIDATION_ERROR", `riskAcceptanceId "${input.riskAcceptanceId}" is not currently valid (expired, revoked, or not yet approved)`,
+          { controlId: input.controlId, riskAcceptanceId: input.riskAcceptanceId }
+        );
+      }
     }
 
-    const { autoResult, matchedRules } = evaluateApplicability(control, project.profile);
     const applicability = input.applicabilityOverride
       ? { autoResult, finalResult: input.applicabilityOverride.result, matchedRules, source: "manual_override" as const, reason: input.applicabilityOverride.reason }
       : { autoResult, finalResult: autoResult, matchedRules, source: "automatic" as const };
@@ -232,6 +273,7 @@ export class AssessmentService {
 
     const assessment: ControlAssessment = {
       assessmentId: generateUuid(), projectId: input.projectId, controlId: input.controlId, controlVersion: control.version,
+      runId: input.runId, profileRevision: run.profileRevision,
       applicability, status: input.status, evidenceIds, findingIds: [], riskAcceptanceId: input.riskAcceptanceId ?? null,
       owner: AGENT_IDENTITY, assessedBy: AGENT_IDENTITY, assessedAt: this.now(), nextReviewAt: null, notes: input.notes ?? null,
     };

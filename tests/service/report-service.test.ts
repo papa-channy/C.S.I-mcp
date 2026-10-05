@@ -28,6 +28,7 @@ async function makeGeneratableProject(repo: FakeRepository) {
   for (let i = 0; i < blockingControls.length; i++) {
     await repo.saveControlAssessment({
       assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,
+      runId: "RUN-1", profileRevision: 1,
       applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
       status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: NOW, nextReviewAt: null, notes: null,
     });

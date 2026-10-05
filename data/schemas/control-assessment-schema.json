@@ -8,6 +8,8 @@
     "projectId": { "type": "string", "minLength": 1 },
     "controlId": { "type": "string", "pattern": "^[A-Z]+(-[A-Z]+)*-[0-9]{3}$" },
     "controlVersion": { "type": "integer", "minimum": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "profileRevision": { "type": "integer", "minimum": 1 },
     "applicability": {
       "type": "object",
       "properties": {
@@ -34,7 +36,7 @@
     "notes": { "type": ["string", "null"] }
   },
   "required": [
-    "assessmentId", "projectId", "controlId", "controlVersion",
+    "assessmentId", "projectId", "controlId", "controlVersion", "runId", "profileRevision",
     "applicability", "status", "evidenceIds", "findingIds",
     "riskAcceptanceId", "owner", "assessedBy", "assessedAt"
   ],
@@ -43,6 +45,18 @@
     {
       "if": { "properties": { "status": { "const": "N/A" } }, "required": ["status"] },
       "then": { "properties": { "notes": { "type": "string", "minLength": 1 } }, "required": ["notes"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "N/A" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "applicability": {
+            "type": "object",
+            "properties": { "finalResult": { "const": "not_applicable" } },
+            "required": ["finalResult"]
+          }
+        }
+      }
     },
     {
       "if": { "properties": { "status": { "const": "ACCEPTED_RISK" } }, "required": ["status"] },

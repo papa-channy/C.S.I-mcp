@@ -167,6 +167,7 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
   it("saveControlAssessment appends a new controlId but replaces an existing one (upsert)", async () => {
     const first: ControlAssessment = {
       assessmentId: "A-1", projectId: "PRJ-1", controlId: "APP-INPUT-VAL-001", controlVersion: 1,
+      runId: "RUN-1", profileRevision: 1,
       applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
       status: "NOT_TESTED", evidenceIds: [], findingIds: [], riskAcceptanceId: null,
       owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: "2026-09-30T00:00:00.000Z", nextReviewAt: null, notes: null,
