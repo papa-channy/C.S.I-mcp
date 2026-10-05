@@ -224,6 +224,34 @@ no computation on them.
   work this spec covers — the project's own established practice is to
   re-run `generate_report` and document the resulting verdict changes in
   `tracking.md` as its own tracked step, not bundle it into a code spec.
+- **Validating that `ACCEPTED_RISK` reflects a real, valid `RiskAcceptance`.**
+  Found during the second external review round (§8). `record_assessment`
+  only checks that a `riskAcceptanceId` string is non-empty — nothing in
+  this codebase creates, persists, or validates a `RiskAcceptance` entity
+  (scope, approver, expiry, compensating controls). This was already a
+  known, documented gap from the original MCP server design (`riskAcceptanceId`
+  was explicitly "pattern only, not used by any tool this phase"), not
+  introduced by this spec — but this spec's Control Gate makes it matter
+  more: any of the 8 `RELEASE_BLOCKING_CONTROLS` can have its status set
+  to `ACCEPTED_RISK` with an arbitrary `riskAcceptanceId` and the Control
+  Gate will treat it as satisfied, no questions asked. Fixing this
+  properly needs a real `RiskAcceptance` persistence-and-validation
+  subsystem — out of scope for a release-gate change, and needs its own
+  design pass. Recorded here as a real, separate, higher-priority
+  follow-up (it is a genuine bypass path), not silently accepted.
+- **Detecting a `ControlAssessment` that's stale relative to the current
+  project profile.** Also found during the second external review round.
+  `ControlAssessment` has no field recording which `profileRevision` it
+  was assessed against, so if a project's profile changes after an
+  assessment (e.g. a project that previously had no local password auth
+  adds it), the old assessment's status keeps being trusted by
+  `evaluateRelease` with no staleness signal anywhere. This is a
+  pre-existing property of the whole assessment model (`ControlAssessment`
+  upsert-by-`controlId`, documented in the MCP server spec), not specific
+  to release-blocking controls, but the Control Gate inherits it for all
+  8 listed controls. Fixing this needs a schema change
+  (`ControlAssessment.profileRevision` or equivalent) plus a staleness
+  check somewhere in the read path — a real follow-up, not in scope here.
 
 ## 8. Adoption Log (external review)
 
@@ -255,3 +283,36 @@ statuses.
 policy file now; expanding `IAM-AUTHZ-*` coverage beyond `001`/`002`;
 including `DEVOPS-ARTIFACT-001`; changing the Finding Gate's treatment of
 `likely_vulnerability`.
+
+**Second review round (final design/plan review, before implementation):**
+confirmed the architecture, control list, and status-mapping table in this
+spec match what both sides agreed on, and confirmed both self-caught test
+bugs (§6) were diagnosed and fixed correctly. Surfaced two real,
+pre-existing structural gaps neither side had caught before — the
+`ACCEPTED_RISK` validity gap and the stale-`ControlAssessment` gap, both
+now recorded in §7 as explicit, separate follow-ups rather than folded
+into this plan's scope. Also raised, and considered but not changed:
+whether `incidentResponseVerified`/`backupRestoreVerified` should derive
+from the same computation as `blockingControlFailures`/
+`blockingControlsNotVerified` rather than their own independent lookup
+against `assessmentByControl`, to rule out the two ever drifting apart
+the way the original dead-calculation bug happened. On inspection this
+doesn't apply here: both already read the exact same `assessmentByControl`
+map built once per call with no caching, so they're two pure-function
+views of one source and cannot drift; and the two booleans' semantics
+("is this control's status exactly `PASS`") differ from the Control
+Gate's three-way bucketing (`FAIL` / not-verified / no-contribution),
+so forcing one to derive from the other would need extra logic with no
+correctness benefit. Kept as two independent, equally-trivial
+computations over the same map — this is `src/core/release-evaluator.ts`'s
+`incidentResponseVerified`/`backupRestoreVerified` lines, unchanged by
+this plan except for the new sibling arrays alongside them. Adopted:
+sorting `blockingControlFailures`/`blockingControlsNotVerified` before returning
+them, for deterministic test/snapshot output. Suggested but not adopted
+as a hard requirement: full 8-control × 5-status parameterized metamorphic
+tests (the plan's existing coverage — all 8 tested for `FAIL` via one
+loop, plus full status-mapping proven once via a representative control —
+was judged sufficient without the full cross-product); a documented
+"known follow-up" note about `Control FAIL` with zero attached `Finding`s
+being worth a future semantic-consistency check — recorded here as a
+noted idea, not a spec requirement.
