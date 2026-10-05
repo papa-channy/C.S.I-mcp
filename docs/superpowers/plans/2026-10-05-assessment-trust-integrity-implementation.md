@@ -29,11 +29,13 @@
 - Modify: `data/schemas/risk-acceptance-schema.json`
 - Modify: `src/core/repository.ts`
 - Create: `src/core/risk-acceptance.ts`
+- Create: `src/service/risk-acceptance-service.ts`
 - Create: `src/mcp/tools/record-risk-acceptance.ts`
 - Create: `src/mcp/tools/revoke-risk-acceptance.ts`
 - Modify: `src/mcp/server.ts`
 - Modify: `tests/service/fake-repository.ts`
 - Test: `tests/core/risk-acceptance.test.ts` (new)
+- Test: `tests/service/risk-acceptance-service.test.ts` (new)
 - Test: `tests/schemas/risk-acceptance-release-evaluation-schemas.test.ts`
 - Test: `tests/core/repository.test.ts`
 - Test: `tests/mcp/tools/risk-acceptance-tools.test.ts` (new)
@@ -43,7 +45,8 @@
 - Produces (for Tasks 2 and 3):
   - `export interface RiskAcceptance` in `src/core/repository.ts`: `{ riskAcceptanceId: string; projectId: string; controlId: string; findingIds: string[]; reason: string; compensatingControls: string[]; approvedBy: string; approvedAt: string; expiresAt: string; reviewDate: string | null; status: "active" | "expired" | "revoked"; revokedAt: string | null; revokedReason: string | null }`.
   - `SecurityRepository.getRiskAcceptances(projectId: string): Promise<RiskAcceptance[]>` and `SecurityRepository.saveRiskAcceptance(projectId: string, ra: RiskAcceptance): Promise<void>` (upsert by `riskAcceptanceId`).
-  - `export function isRiskAcceptanceEffectivelyValid(ra: RiskAcceptance, nowIso: string): boolean` from `src/core/risk-acceptance.ts`.
+  - `export function isRiskAcceptanceEffectivelyValid(ra: RiskAcceptance, nowIso: string): boolean` from `src/core/risk-acceptance.ts` — **Task 3 also adds a second export, `translateAssessmentsForTrust`, to this same file** (not written in this task, since it needs `ControlAssessment.profileRevision` from Task 2 first — see Task 3 Step 1).
+  - `RiskAcceptanceService` (`src/service/risk-acceptance-service.ts`) with `record(input): Promise<RiskAcceptance>` and `revoke(input): Promise<RiskAcceptance>`.
   - MCP tools `record_risk_acceptance` and `revoke_risk_acceptance`, registered in `buildServer()`.
 
 - [ ] **Step 1: Add `revokedAt`/`revokedReason` to the risk-acceptance schema, write the failing schema test**
@@ -288,9 +291,164 @@ export function isRiskAcceptanceEffectivelyValid(ra: RiskAcceptance, nowIso: str
 Run: `npx vitest run tests/core/risk-acceptance.test.ts`
 Expected: PASS, all 6 tests.
 
-- [ ] **Step 12: Write the failing test for the two new MCP tools**
+- [ ] **Step 12: Write the failing test for `RiskAcceptanceService`**
 
-Create `tests/mcp/tools/risk-acceptance-tools.test.ts`:
+Create `tests/service/risk-acceptance-service.test.ts`. **Added after this plan's final GPT review round** — an earlier draft had the two new MCP tools call `SecurityRepository` directly; reviewer pushed back that `RiskAcceptance` already has real lifecycle/validity semantics that warrant the same service-layer boundary every other entity in this codebase gets:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { RiskAcceptanceService } from "../../src/service/risk-acceptance-service.js";
+import { FakeRepository } from "./fake-repository.js";
+
+const NOW = "2026-10-05T00:00:00.000Z";
+
+describe("RiskAcceptanceService.record", () => {
+  it("creates RA-001 with agent-populated approvedBy/approvedAt and status active", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    const ra = await service.record({
+      projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "compensating control in place",
+      expiresAt: "2026-12-05T00:00:00.000Z",
+    });
+    expect(ra.riskAcceptanceId).toBe("RA-001");
+    expect(ra.status).toBe("active");
+    expect(ra.approvedBy).toBe("csi-mcp-agent");
+    expect(ra.approvedAt).toBe(NOW);
+    expect(ra.revokedAt).toBeNull();
+    const [stored] = await repo.getRiskAcceptances("PRJ-1");
+    expect(stored).toEqual(ra);
+  });
+
+  it("assigns sequential IDs across calls within the same project", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    await service.record({ projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z" });
+    const second = await service.record({ projectId: "PRJ-1", controlId: "DATA-ENC-002", reason: "r2", expiresAt: "2026-12-05T00:00:00.000Z" });
+    expect(second.riskAcceptanceId).toBe("RA-002");
+  });
+
+  it("defaults findingIds/compensatingControls/reviewDate when omitted", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    const ra = await service.record({ projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z" });
+    expect(ra.findingIds).toEqual([]);
+    expect(ra.compensatingControls).toEqual([]);
+    expect(ra.reviewDate).toBeNull();
+  });
+});
+
+describe("RiskAcceptanceService.revoke", () => {
+  it("transitions active to revoked with revokedAt/revokedReason set", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    await service.record({ projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z" });
+    const revoked = await service.revoke({ projectId: "PRJ-1", riskAcceptanceId: "RA-001", revokedReason: "control remediated" });
+    expect(revoked.status).toBe("revoked");
+    expect(revoked.revokedAt).toBe(NOW);
+    expect(revoked.revokedReason).toBe("control remediated");
+    const [stored] = await repo.getRiskAcceptances("PRJ-1");
+    expect(stored.status).toBe("revoked");
+  });
+
+  it("is idempotent on an already-revoked record — returns it unchanged, not an error", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    await service.record({ projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z" });
+    await service.revoke({ projectId: "PRJ-1", riskAcceptanceId: "RA-001", revokedReason: "first revoke" });
+    const second = await service.revoke({ projectId: "PRJ-1", riskAcceptanceId: "RA-001", revokedReason: "second revoke attempt" });
+    expect(second.status).toBe("revoked");
+    expect(second.revokedReason).toBe("first revoke"); // unchanged by the second call
+  });
+
+  it("throws NOT_FOUND for an unknown riskAcceptanceId", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    await expect(service.revoke({ projectId: "PRJ-1", riskAcceptanceId: "RA-999", revokedReason: "x" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+```
+
+- [ ] **Step 13: Run to verify it fails**
+
+Run: `npx vitest run tests/service/risk-acceptance-service.test.ts`
+Expected: FAIL — `src/service/risk-acceptance-service.ts` doesn't exist yet.
+
+- [ ] **Step 14: Implement `RiskAcceptanceService`**
+
+Create `src/service/risk-acceptance-service.ts`, same constructor shape as `AssessmentService`/`AnalysisService`:
+
+```ts
+import type { SecurityRepository, RiskAcceptance } from "../core/repository.js";
+import { ServiceError } from "./errors.js";
+import { nextSequentialId } from "./ids.js";
+import { AGENT_IDENTITY } from "./constants.js";
+
+export interface RecordRiskAcceptanceInput {
+  projectId: string;
+  controlId: string;
+  findingIds?: string[];
+  reason: string;
+  compensatingControls?: string[];
+  expiresAt: string;
+  reviewDate?: string;
+}
+
+export interface RevokeRiskAcceptanceInput {
+  projectId: string;
+  riskAcceptanceId: string;
+  revokedReason: string;
+}
+
+export class RiskAcceptanceService {
+  constructor(
+    private readonly repository: SecurityRepository,
+    private readonly now: () => string = () => new Date().toISOString()
+  ) {}
+
+  async record(input: RecordRiskAcceptanceInput): Promise<RiskAcceptance> {
+    const existing = await this.repository.getRiskAcceptances(input.projectId);
+    const riskAcceptanceId = nextSequentialId("RA", existing.length);
+    const ra: RiskAcceptance = {
+      riskAcceptanceId, projectId: input.projectId, controlId: input.controlId,
+      findingIds: input.findingIds ?? [], reason: input.reason,
+      compensatingControls: input.compensatingControls ?? [],
+      approvedBy: AGENT_IDENTITY, approvedAt: this.now(), expiresAt: input.expiresAt,
+      reviewDate: input.reviewDate ?? null, status: "active", revokedAt: null, revokedReason: null,
+    };
+    await this.repository.saveRiskAcceptance(input.projectId, ra);
+    return ra;
+  }
+
+  async revoke(input: RevokeRiskAcceptanceInput): Promise<RiskAcceptance> {
+    const all = await this.repository.getRiskAcceptances(input.projectId);
+    const existing = all.find((r) => r.riskAcceptanceId === input.riskAcceptanceId);
+    if (!existing) {
+      throw new ServiceError(
+        "NOT_FOUND", `RiskAcceptance "${input.riskAcceptanceId}" not found`,
+        { projectId: input.projectId, riskAcceptanceId: input.riskAcceptanceId }
+      );
+    }
+    if (existing.status === "revoked") {
+      return existing;
+    }
+    const revoked: RiskAcceptance = {
+      ...existing, status: "revoked", revokedAt: this.now(), revokedReason: input.revokedReason,
+    };
+    await this.repository.saveRiskAcceptance(input.projectId, revoked);
+    return revoked;
+  }
+}
+```
+
+- [ ] **Step 15: Run to verify it passes**
+
+Run: `npx vitest run tests/service/risk-acceptance-service.test.ts`
+Expected: PASS, all 7 tests.
+
+- [ ] **Step 16: Write the failing test for the two new MCP tools**
+
+Create `tests/mcp/tools/risk-acceptance-tools.test.ts` — these tests exercise the tool-registration/wiring layer specifically (zod input shape, error-result translation), constructing a real `RiskAcceptanceService` the same way `tests/mcp/tools/assessment-tools.test.ts` constructs a real `AssessmentService`, not a mock:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -298,14 +456,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FakeRepository } from "../../service/fake-repository.js";
+import { RiskAcceptanceService } from "../../../src/service/risk-acceptance-service.js";
 import { registerRecordRiskAcceptanceTool } from "../../../src/mcp/tools/record-risk-acceptance.js";
 import { registerRevokeRiskAcceptanceTool } from "../../../src/mcp/tools/revoke-risk-acceptance.js";
 
 async function makeConnectedClient() {
   const repo = new FakeRepository();
+  const service = new RiskAcceptanceService(repo, () => "2026-10-05T00:00:00.000Z");
   const server = new McpServer({ name: "test", version: "0.0.0" });
-  registerRecordRiskAcceptanceTool(server, repo, () => "2026-10-05T00:00:00.000Z");
-  registerRevokeRiskAcceptanceTool(server, repo, () => "2026-10-06T00:00:00.000Z");
+  registerRecordRiskAcceptanceTool(server, service);
+  registerRevokeRiskAcceptanceTool(server, service);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "0.0.0" });
@@ -314,7 +474,7 @@ async function makeConnectedClient() {
 }
 
 describe("record_risk_acceptance / revoke_risk_acceptance", () => {
-  it("record_risk_acceptance creates RA-001 with agent-populated approvedBy/approvedAt", async () => {
+  it("record_risk_acceptance round-trips through the tool layer to a real RiskAcceptance", async () => {
     const { client, repo } = await makeConnectedClient();
     const result = await client.callTool({
       name: "record_risk_acceptance",
@@ -325,28 +485,12 @@ describe("record_risk_acceptance / revoke_risk_acceptance", () => {
     });
     expect(result.isError).toBeFalsy();
     expect((result.structuredContent as any).riskAcceptanceId).toBe("RA-001");
-    expect((result.structuredContent as any).status).toBe("active");
-    expect((result.structuredContent as any).approvedAt).toBe("2026-10-05T00:00:00.000Z");
     const [stored] = await repo.getRiskAcceptances("PRJ-1");
     expect(stored.controlId).toBe("IAM-AUTH-005");
-    expect(stored.revokedAt).toBeNull();
   });
 
-  it("record_risk_acceptance assigns sequential IDs across calls", async () => {
+  it("revoke_risk_acceptance round-trips through the tool layer", async () => {
     const { client } = await makeConnectedClient();
-    await client.callTool({
-      name: "record_risk_acceptance",
-      arguments: { projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z" },
-    });
-    const second = await client.callTool({
-      name: "record_risk_acceptance",
-      arguments: { projectId: "PRJ-1", controlId: "DATA-ENC-002", reason: "r2", expiresAt: "2026-12-05T00:00:00.000Z" },
-    });
-    expect((second.structuredContent as any).riskAcceptanceId).toBe("RA-002");
-  });
-
-  it("revoke_risk_acceptance transitions active to revoked with revokedAt/revokedReason set", async () => {
-    const { client, repo } = await makeConnectedClient();
     await client.callTool({
       name: "record_risk_acceptance",
       arguments: { projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z" },
@@ -357,32 +501,9 @@ describe("record_risk_acceptance / revoke_risk_acceptance", () => {
     });
     expect(result.isError).toBeFalsy();
     expect((result.structuredContent as any).status).toBe("revoked");
-    expect((result.structuredContent as any).revokedAt).toBe("2026-10-06T00:00:00.000Z");
-    expect((result.structuredContent as any).revokedReason).toBe("control remediated");
-    const [stored] = await repo.getRiskAcceptances("PRJ-1");
-    expect(stored.status).toBe("revoked");
   });
 
-  it("revoke_risk_acceptance on an already-revoked record is idempotent, not an error", async () => {
-    const { client } = await makeConnectedClient();
-    await client.callTool({
-      name: "record_risk_acceptance",
-      arguments: { projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z" },
-    });
-    await client.callTool({
-      name: "revoke_risk_acceptance",
-      arguments: { projectId: "PRJ-1", riskAcceptanceId: "RA-001", revokedReason: "first revoke" },
-    });
-    const second = await client.callTool({
-      name: "revoke_risk_acceptance",
-      arguments: { projectId: "PRJ-1", riskAcceptanceId: "RA-001", revokedReason: "second revoke attempt" },
-    });
-    expect(second.isError).toBeFalsy();
-    expect((second.structuredContent as any).status).toBe("revoked");
-    expect((second.structuredContent as any).revokedReason).toBe("first revoke"); // unchanged by the second call
-  });
-
-  it("revoke_risk_acceptance rejects an unknown riskAcceptanceId with NOT_FOUND", async () => {
+  it("revoke_risk_acceptance surfaces NOT_FOUND through the tool layer's error-result translation", async () => {
     const { client } = await makeConnectedClient();
     const result = await client.callTool({
       name: "revoke_risk_acceptance",
@@ -394,23 +515,23 @@ describe("record_risk_acceptance / revoke_risk_acceptance", () => {
 });
 ```
 
-- [ ] **Step 13: Run to verify it fails**
+(The service-level tests in Step 12 already cover sequential-ID assignment, default-field behavior, and idempotency in full — this file only needs to prove the tool layer itself wires zod input, the service, and error-result translation correctly, not re-prove the service's own logic.)
+
+- [ ] **Step 17: Run to verify it fails**
 
 Run: `npx vitest run tests/mcp/tools/risk-acceptance-tools.test.ts`
 Expected: FAIL — `src/mcp/tools/record-risk-acceptance.ts` and `src/mcp/tools/revoke-risk-acceptance.ts` don't exist yet.
 
-- [ ] **Step 14: Implement `record-risk-acceptance.ts` and `revoke-risk-acceptance.ts`**
+- [ ] **Step 18: Implement `record-risk-acceptance.ts` and `revoke-risk-acceptance.ts`**
 
-Note these two tools take a `SecurityRepository` and a `now: () => string` directly (not a service class) — there's no `RiskAcceptanceService` in this plan; the logic is thin enough (generate an ID, build the record, save it) to live directly in the tool, following the precedent that `record_finding`/`record_assessment` route through `AssessmentService` only because they have real validation logic — these two don't need a new service class for that. `nextSequentialId` already exists in `src/service/ids.js` and is reused here.
+Both are thin wrappers around `RiskAcceptanceService`, matching `record-finding.ts`'s exact shape (zod input, `registerTool`, `toErrorResult` on catch).
 
 Create `src/mcp/tools/record-risk-acceptance.ts`:
 
 ```ts
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SecurityRepository, RiskAcceptance } from "../../core/repository.js";
-import { nextSequentialId } from "../../service/ids.js";
-import { AGENT_IDENTITY } from "../../service/constants.js";
+import type { RiskAcceptanceService } from "../../service/risk-acceptance-service.js";
 import { toErrorResult } from "./error-result.js";
 
 export const recordRiskAcceptanceInputShape = {
@@ -423,11 +544,7 @@ export const recordRiskAcceptanceInputShape = {
   reviewDate: z.string().optional(),
 };
 
-export function registerRecordRiskAcceptanceTool(
-  server: McpServer,
-  repository: SecurityRepository,
-  now: () => string = () => new Date().toISOString()
-): void {
+export function registerRecordRiskAcceptanceTool(server: McpServer, service: RiskAcceptanceService): void {
   server.registerTool(
     "record_risk_acceptance",
     {
@@ -441,16 +558,7 @@ export function registerRecordRiskAcceptanceTool(
     },
     async (input) => {
       try {
-        const existing = await repository.getRiskAcceptances(input.projectId);
-        const riskAcceptanceId = nextSequentialId("RA", existing.length);
-        const ra: RiskAcceptance = {
-          riskAcceptanceId, projectId: input.projectId, controlId: input.controlId,
-          findingIds: input.findingIds ?? [], reason: input.reason,
-          compensatingControls: input.compensatingControls ?? [],
-          approvedBy: AGENT_IDENTITY, approvedAt: now(), expiresAt: input.expiresAt,
-          reviewDate: input.reviewDate ?? null, status: "active", revokedAt: null, revokedReason: null,
-        };
-        await repository.saveRiskAcceptance(input.projectId, ra);
+        const ra = await service.record(input);
         return {
           content: [{ type: "text" as const, text: `Recorded risk acceptance ${ra.riskAcceptanceId} for ${ra.controlId}.` }],
           structuredContent: ra as unknown as Record<string, unknown>,
@@ -468,8 +576,7 @@ Create `src/mcp/tools/revoke-risk-acceptance.ts`:
 ```ts
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SecurityRepository } from "../../core/repository.js";
-import { ServiceError } from "../../service/errors.js";
+import type { RiskAcceptanceService } from "../../service/risk-acceptance-service.js";
 import { toErrorResult } from "./error-result.js";
 
 export const revokeRiskAcceptanceInputShape = {
@@ -478,11 +585,7 @@ export const revokeRiskAcceptanceInputShape = {
   revokedReason: z.string().min(1),
 };
 
-export function registerRevokeRiskAcceptanceTool(
-  server: McpServer,
-  repository: SecurityRepository,
-  now: () => string = () => new Date().toISOString()
-): void {
+export function registerRevokeRiskAcceptanceTool(server: McpServer, service: RiskAcceptanceService): void {
   server.registerTool(
     "revoke_risk_acceptance",
     {
@@ -495,22 +598,7 @@ export function registerRevokeRiskAcceptanceTool(
     },
     async (input) => {
       try {
-        const all = await repository.getRiskAcceptances(input.projectId);
-        const existing = all.find((r) => r.riskAcceptanceId === input.riskAcceptanceId);
-        if (!existing) {
-          throw new ServiceError(
-            "NOT_FOUND", `RiskAcceptance "${input.riskAcceptanceId}" not found`,
-            { projectId: input.projectId, riskAcceptanceId: input.riskAcceptanceId }
-          );
-        }
-        if (existing.status === "revoked") {
-          return {
-            content: [{ type: "text" as const, text: `Risk acceptance ${existing.riskAcceptanceId} was already revoked.` }],
-            structuredContent: existing as unknown as Record<string, unknown>,
-          };
-        }
-        const revoked = { ...existing, status: "revoked" as const, revokedAt: now(), revokedReason: input.revokedReason };
-        await repository.saveRiskAcceptance(input.projectId, revoked);
+        const revoked = await service.revoke(input);
         return {
           content: [{ type: "text" as const, text: `Revoked risk acceptance ${revoked.riskAcceptanceId}.` }],
           structuredContent: revoked as unknown as Record<string, unknown>,
@@ -523,30 +611,35 @@ export function registerRevokeRiskAcceptanceTool(
 }
 ```
 
-- [ ] **Step 15: Run to verify it passes**
+- [ ] **Step 19: Run to verify it passes**
 
 Run: `npx vitest run tests/mcp/tools/risk-acceptance-tools.test.ts`
-Expected: PASS, all 5 tests.
+Expected: PASS, all 3 tests.
 
-- [ ] **Step 16: Wire both tools into `buildServer()`**
+- [ ] **Step 20: Wire `RiskAcceptanceService` and both tools into `buildServer()`**
 
 In `src/mcp/server.ts`, add two imports:
 
 ```ts
+import { RiskAcceptanceService } from "../service/risk-acceptance-service.js";
 import { registerRecordRiskAcceptanceTool } from "./tools/record-risk-acceptance.js";
 import { registerRevokeRiskAcceptanceTool } from "./tools/revoke-risk-acceptance.js";
 ```
 
-and, inside `buildServer`, after `registerRecordFindingTool(server, assessmentService);`, add:
+Inside `buildServer`, after `const assessmentService = new AssessmentService(repository);`, add:
 
 ```ts
-  registerRecordRiskAcceptanceTool(server, repository);
-  registerRevokeRiskAcceptanceTool(server, repository);
+  const riskAcceptanceService = new RiskAcceptanceService(repository);
 ```
 
-(Both take `repository` directly, not a service — see Step 14's note.)
+and, after `registerRecordFindingTool(server, assessmentService);`, add:
 
-- [ ] **Step 17: Typecheck and run the full suite**
+```ts
+  registerRecordRiskAcceptanceTool(server, riskAcceptanceService);
+  registerRevokeRiskAcceptanceTool(server, riskAcceptanceService);
+```
+
+- [ ] **Step 21: Typecheck and run the full suite**
 
 Run: `npx tsc --noEmit`
 Expected: clean.
@@ -554,23 +647,26 @@ Expected: clean.
 Run: `npx vitest run`
 Expected: PASS, every test file (no other file should be affected by this task — `ControlAssessment` itself is unchanged in this task, only `SecurityRepository`/`JsonRepository`/`FakeRepository` grew two new methods, which is purely additive).
 
-- [ ] **Step 18: Commit**
+- [ ] **Step 22: Commit**
 
 ```bash
 git add data/schemas/risk-acceptance-schema.json src/core/repository.ts src/core/risk-acceptance.ts \
+  src/service/risk-acceptance-service.ts \
   src/mcp/tools/record-risk-acceptance.ts src/mcp/tools/revoke-risk-acceptance.ts src/mcp/server.ts \
-  tests/service/fake-repository.ts tests/core/risk-acceptance.test.ts \
+  tests/service/fake-repository.ts tests/core/risk-acceptance.test.ts tests/service/risk-acceptance-service.test.ts \
   tests/schemas/risk-acceptance-release-evaluation-schemas.test.ts tests/core/repository.test.ts \
   tests/mcp/tools/risk-acceptance-tools.test.ts
-git commit -m "feat(core,mcp): wire up the long-dormant RiskAcceptance entity
+git commit -m "feat(core,service,mcp): wire up the long-dormant RiskAcceptance entity
 
 RiskAcceptance has had a full JSON schema since Phase 1 but zero lines
 of code using it anywhere. Adds the TS interface, repository
 persistence (upsert by riskAcceptanceId, same pattern as findings.json),
 a pure isRiskAcceptanceEffectivelyValid() helper (checks status,
 approvedAt, and expiresAt independently — never trusts status alone),
-and two new MCP tools: record_risk_acceptance and
-revoke_risk_acceptance (idempotent on an already-revoked record).
+a RiskAcceptanceService (matching every other entity's service-layer
+boundary in this codebase), and two new MCP tools:
+record_risk_acceptance and revoke_risk_acceptance (idempotent on an
+already-revoked record).
 
 See docs/superpowers/specs/2026-10-05-assessment-trust-integrity-design.md"
 ```
@@ -1071,35 +1167,143 @@ See docs/superpowers/specs/2026-10-05-assessment-trust-integrity-design.md"
 
 ---
 
-### Task 3: `AnalysisService` — injectable clock, staleness/validity translation, freshness-aware Coverage Gate
+### Task 3: Shared trust translation, `AnalysisService`, and `ReportService` — freshness-aware Coverage Gate everywhere a release decision is computed
 
 **Files:**
+- Modify: `src/core/risk-acceptance.ts`
 - Modify: `src/service/analysis-service.ts`
+- Modify: `src/service/report-service.ts`
 - Modify: `src/mcp/tools/evaluate-release.ts`
+- Test: `tests/core/risk-acceptance.test.ts`
 - Test: `tests/service/analysis-service.test.ts`
+- Test: `tests/service/report-service.test.ts`
 - Test: `tests/mcp/tools/analysis-report-tools.test.ts`
 
 **Interfaces:**
-- Consumes (from Task 1): `RiskAcceptance`, `isRiskAcceptanceEffectivelyValid`. (from Task 2): `ControlAssessment.profileRevision`.
-- Produces: no new exports — this task changes `AnalysisService`'s internal behavior and its constructor's optional second parameter, not its public method signatures.
+- Consumes (from Task 1): `RiskAcceptance`, `isRiskAcceptanceEffectivelyValid`. (from Task 2): `ControlAssessment.profileRevision`/`runId`.
+- Produces: `translateAssessmentsForTrust(assessments, currentProfileRevision, riskAcceptances, nowIso)` added to `src/core/risk-acceptance.ts`. No changes to `AnalysisService`'s or `ReportService`'s public method signatures — only `AnalysisService`'s constructor gains an optional second parameter (`ReportService`'s already has one).
 
-- [ ] **Step 1: Check whether `tests/service/analysis-service.test.ts` already exists**
+**Why this task covers two services, not one.** `ReportService.generate` (backing `generate_report`) was found during this plan's final review round to independently duplicate the exact same `calculateScore` + `evaluateRelease` pattern `AnalysisService.evaluateRelease` has, from its own separate raw `getControlAssessments` read — confirmed by reading `src/service/report-service.ts` directly, which never calls `AnalysisService` at all. Fixing only `AnalysisService` would leave `generate_report` producing a stale-blind `releaseEvaluation`/`score` inside every saved `ProjectReport`, reintroducing the exact inconsistency this whole task exists to close, just one layer over. Both services' fixes share one function (`translateAssessmentsForTrust`) rather than duplicating the translation logic a second time across two call sites.
 
-Run: `ls tests/service/analysis-service.test.ts 2>/dev/null && echo exists || echo missing`
+- [ ] **Step 1: Write the failing test for `translateAssessmentsForTrust`**
 
-If missing, this task creates it from scratch covering both `getScore` and `evaluateRelease` (the file apparently doesn't exist yet even though `AnalysisService` does — confirm by checking `tests/mcp/tools/analysis-report-tools.test.ts` and `tests/service/` directory contents first; if an analysis-service test file exists under a different name, use that file instead and adapt the steps below to its existing structure rather than creating a duplicate).
-
-- [ ] **Step 2: Write the failing test for the injectable clock and basic pass-through behavior**
-
-Create (or extend) `tests/service/analysis-service.test.ts`:
+Add to `tests/core/risk-acceptance.test.ts` (same file Task 1 created — add the import `ControlAssessment` to the existing type-only import from `../../src/core/repository.js`, alongside `RiskAcceptance`):
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { AssessmentService } from "../../src/service/assessment-service.js";
-import { AnalysisService } from "../../src/service/analysis-service.js";
-import { FakeRepository } from "./fake-repository.js";
-import type { Control } from "../../src/core/repository.js";
+import { isRiskAcceptanceEffectivelyValid, translateAssessmentsForTrust } from "../../src/core/risk-acceptance.js";
+import type { ControlAssessment, RiskAcceptance } from "../../src/core/repository.js";
 
+function assessment(controlId: string, overrides: Partial<ControlAssessment> = {}): ControlAssessment {
+  return {
+    assessmentId: `A-${controlId}`, projectId: "PRJ-1", controlId, controlVersion: 1,
+    runId: "RUN-1", profileRevision: 1,
+    applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+    status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null,
+    owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: NOW, nextReviewAt: null, notes: null,
+    ...overrides,
+  };
+}
+
+describe("translateAssessmentsForTrust", () => {
+  it("a fresh assessment (profileRevision matches) passes through with its real status", () => {
+    const result = translateAssessmentsForTrust([assessment("TEST-001", { profileRevision: 1 })], 1, [], NOW);
+    expect(result).toEqual([{ controlId: "TEST-001", status: "PASS" }]);
+  });
+
+  it("a stale assessment (profileRevision does not match) is translated to NOT_TESTED", () => {
+    const result = translateAssessmentsForTrust([assessment("TEST-001", { profileRevision: 1 })], 2, [], NOW);
+    expect(result).toEqual([{ controlId: "TEST-001", status: "NOT_TESTED" }]);
+  });
+
+  it("ACCEPTED_RISK backed by a valid RiskAcceptance passes through unchanged", () => {
+    const ra: RiskAcceptance = {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: "TEST-001", findingIds: [],
+      reason: "r", compensatingControls: [], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-10-01T00:00:00.000Z", expiresAt: "2026-12-01T00:00:00.000Z",
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    };
+    const a = assessment("TEST-001", { status: "ACCEPTED_RISK", riskAcceptanceId: "RA-001" });
+    const result = translateAssessmentsForTrust([a], 1, [ra], NOW);
+    expect(result).toEqual([{ controlId: "TEST-001", status: "ACCEPTED_RISK" }]);
+  });
+
+  it("ACCEPTED_RISK whose RiskAcceptance has since expired is translated to NOT_TESTED", () => {
+    const ra: RiskAcceptance = {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: "TEST-001", findingIds: [],
+      reason: "r", compensatingControls: [], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-09-01T00:00:00.000Z", expiresAt: "2026-10-01T00:00:00.000Z", // expired before NOW
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    };
+    const a = assessment("TEST-001", { status: "ACCEPTED_RISK", riskAcceptanceId: "RA-001" });
+    const result = translateAssessmentsForTrust([a], 1, [ra], NOW);
+    expect(result).toEqual([{ controlId: "TEST-001", status: "NOT_TESTED" }]);
+  });
+
+  it("ACCEPTED_RISK whose riskAcceptanceId resolves to nothing at all is translated to NOT_TESTED", () => {
+    const a = assessment("TEST-001", { status: "ACCEPTED_RISK", riskAcceptanceId: "RA-404" });
+    const result = translateAssessmentsForTrust([a], 1, [], NOW);
+    expect(result).toEqual([{ controlId: "TEST-001", status: "NOT_TESTED" }]);
+  });
+
+  it("never mutates the input ControlAssessment objects", () => {
+    const a = assessment("TEST-001", { profileRevision: 1 });
+    translateAssessmentsForTrust([a], 2, [], NOW);
+    expect(a.status).toBe("PASS");
+    expect(a.profileRevision).toBe(1);
+  });
+});
+```
+
+(`NOW` is already defined as a module-level constant at the top of this file from Task 1's `isRiskAcceptanceEffectivelyValid` tests — reuse it, don't redefine it.)
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npx vitest run tests/core/risk-acceptance.test.ts`
+Expected: FAIL — `translateAssessmentsForTrust` is not exported from `src/core/risk-acceptance.ts` yet.
+
+- [ ] **Step 3: Implement `translateAssessmentsForTrust`**
+
+Add to `src/core/risk-acceptance.ts` (alongside the existing `isRiskAcceptanceEffectivelyValid`):
+
+```ts
+import type { ControlAssessment, RiskAcceptance } from "./repository.js";
+
+export function isRiskAcceptanceEffectivelyValid(ra: RiskAcceptance, nowIso: string): boolean {
+  return ra.status === "active" && ra.approvedAt <= nowIso && nowIso < ra.expiresAt;
+}
+
+export function translateAssessmentsForTrust(
+  assessments: ControlAssessment[],
+  currentProfileRevision: number,
+  riskAcceptances: RiskAcceptance[],
+  nowIso: string
+): { controlId: string; status: ControlAssessment["status"] }[] {
+  const riskAcceptanceById = new Map(riskAcceptances.map((ra) => [ra.riskAcceptanceId, ra]));
+  return assessments.map((a) => {
+    const stale = a.profileRevision !== currentProfileRevision;
+    const ra = a.riskAcceptanceId ? riskAcceptanceById.get(a.riskAcceptanceId) : undefined;
+    const acceptedRiskInvalid = a.status === "ACCEPTED_RISK" && !(ra && isRiskAcceptanceEffectivelyValid(ra, nowIso));
+    return { controlId: a.controlId, status: stale || acceptedRiskInvalid ? "NOT_TESTED" : a.status };
+  });
+}
+```
+
+(Note the `import type { RiskAcceptance }` at the top of the existing file becomes `import type { ControlAssessment, RiskAcceptance }` — add `ControlAssessment` to it rather than introducing a second import line.)
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `npx vitest run tests/core/risk-acceptance.test.ts`
+Expected: PASS, all tests (Task 1's 6 original tests plus this step's 6 new ones).
+
+- [ ] **Step 5: Fix `tests/service/analysis-service.test.ts`'s 3 existing fixtures, then add the new translation-behavior tests**
+
+This file already exists (6 tests across `AnalysisService.getScore`/`AnalysisService.evaluateRelease`) — do not recreate it from scratch. Two changes to the existing content, then one addition.
+
+**(a) Fix the 3 existing `ControlAssessment` literals.** Each of `"computes a score from the project's assessments and controls"`, the loop inside `"reads securityLevel from the project, never from the caller"`, and `"maps the SVL-0/SVL-1 precondition throw to PRECONDITION_FAILED"` constructs a `ControlAssessment` literal directly via `repo.saveControlAssessment({...})` with no `runId`/`profileRevision` — both now required by Task 2's interface change. Every project in this file is created via `makeProject(repo, securityLevel)` with `profileRevision: 1`, so add `runId: "RUN-1", profileRevision: 1,` to each of the 3 literals (the exact run doesn't need to exist in the repo for these — Task 2's `recordAssessment`-level run-mismatch guard isn't triggered here since these tests call `repo.saveControlAssessment` directly, bypassing `AssessmentService` entirely).
+
+**(b) Add new describe blocks and their own helpers at the end of the file.** These use different helper names (`makeProjectRepo`, `blockingControl`, `passAssessment`) than the file's existing `makeProject`/`setScoreModel`, so there's no collision — append rather than replace. Also add `Control` to the existing import line (`import type { Control } from "../../src/core/repository.js";` — the file currently has no type-only import from `repository.js` at all, so this is a new import line), and append a new top-level `const NOW = "2026-10-05T12:00:00.000Z";` (the existing tests use inline date-time string literals, not a shared constant, so this doesn't conflict with anything):
+
+```ts
 const NOW = "2026-10-05T12:00:00.000Z";
 
 function blockingControl(controlId: string, overrides: Partial<Control> = {}): Control {
@@ -1212,20 +1416,20 @@ describe("AnalysisService.evaluateRelease — Coverage Gate uses the same transl
 });
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [ ] **Step 6: Run to verify it fails**
 
 Run: `npx vitest run tests/service/analysis-service.test.ts`
-Expected: FAIL. The staleness and ACCEPTED_RISK re-validation tests fail because `evaluateRelease` doesn't translate anything yet (it passes raw assessments straight through, and `controlCoverage` comes from the unmodified `getScore()` call in every case). The constructor call `new AnalysisService(repo, () => NOW)` itself will fail to typecheck/compile if the second parameter doesn't exist yet — confirm the failure includes that, not just assertion mismatches.
+Expected: the 3 fixed pre-existing tests PASS (they're unaffected by `profileRevision`/`runId` beyond having valid values now). The new staleness/ACCEPTED_RISK/Coverage-Gate tests FAIL — `evaluateRelease` doesn't translate anything yet (it passes raw assessments straight through, and `controlCoverage` comes from the unmodified `getScore()` call). The constructor call `new AnalysisService(repo, () => NOW)` itself fails to typecheck/compile if the second parameter doesn't exist yet — confirm the failure includes that, not just assertion mismatches.
 
-- [ ] **Step 4: Implement the injectable clock, trust translation, and the direct `calculateScore` call**
+- [ ] **Step 7: Implement the injectable clock and switch to the shared translation helper**
 
 Replace the entire contents of `src/service/analysis-service.ts`:
 
 ```ts
-import type { SecurityRepository, ControlAssessment } from "../core/repository.js";
-import { calculateScore, type Score, type ControlAssessmentInput as ScoreAssessmentInput, type FindingInput as ScoreFindingInput } from "../core/score.js";
+import type { SecurityRepository } from "../core/repository.js";
+import { calculateScore, type Score, type FindingInput as ScoreFindingInput } from "../core/score.js";
 import { evaluateRelease, type ReleaseEvaluation, type FindingInput } from "../core/release-evaluator.js";
-import { isRiskAcceptanceEffectivelyValid } from "../core/risk-acceptance.js";
+import { translateAssessmentsForTrust } from "../core/risk-acceptance.js";
 import { ServiceError, withNotFound } from "./errors.js";
 import { SCORE_MODEL_ID } from "./constants.js";
 import { normalizeFindingSeverity, normalizeFinding } from "./severity.js";
@@ -1272,18 +1476,10 @@ export class AnalysisService {
       status: f.status,
     }));
 
-    // One `now` for the whole evaluation — every RiskAcceptance validity check below uses the
-    // same instant, so a single evaluateRelease call can never see two different answers for
-    // the same expiry boundary.
-    const now = this.now();
-    const riskAcceptanceById = new Map(riskAcceptances.map((ra) => [ra.riskAcceptanceId, ra]));
-
-    const translatedAssessments: ScoreAssessmentInput[] = assessments.map((a: ControlAssessment) => {
-      const stale = a.profileRevision !== project.profileRevision;
-      const ra = a.riskAcceptanceId ? riskAcceptanceById.get(a.riskAcceptanceId) : undefined;
-      const acceptedRiskInvalid = a.status === "ACCEPTED_RISK" && !(ra && isRiskAcceptanceEffectivelyValid(ra, now));
-      return { controlId: a.controlId, status: stale || acceptedRiskInvalid ? "NOT_TESTED" : a.status };
-    });
+    // One `now` for the whole evaluation — translateAssessmentsForTrust uses this same instant
+    // for every RiskAcceptance validity check, so a single evaluateRelease call can never see
+    // two different answers for the same expiry boundary.
+    const translatedAssessments = translateAssessmentsForTrust(assessments, project.profileRevision, riskAcceptances, this.now());
 
     let score: Score;
     try {
@@ -1304,19 +1500,119 @@ export class AnalysisService {
 }
 ```
 
-(`score.ts`'s exported type is literally named `ControlAssessmentInput` — imported here as `ScoreAssessmentInput` only to avoid a name collision with `release-evaluator.ts`'s own same-named, same-shaped type in this file's import list; both are the identical `{ controlId: string; status: ... }` shape, so `translatedAssessments` satisfies both without any reshaping, exactly as the spec describes.)
+(`translateAssessmentsForTrust`'s return shape — `{ controlId: string; status: ControlAssessment["status"] }[]` — is structurally identical to both `score.ts`'s and `release-evaluator.ts`'s own `ControlAssessmentInput` types, so it satisfies both `calculateScore` and `evaluateRelease`'s parameter types directly with no reshaping or casting.)
 
-- [ ] **Step 5: Run to verify it passes**
+- [ ] **Step 8: Run to verify it passes**
 
 Run: `npx vitest run tests/service/analysis-service.test.ts`
-Expected: PASS, all tests.
+Expected: PASS, all tests (the 3 fixed pre-existing ones plus the new describe blocks from Step 5).
 
-- [ ] **Step 6: Run the full suite and fix any other tests that construct `AnalysisService` or call `evaluateRelease`/`getScore` against fixtures lacking `profileRevision`-consistent data**
+- [ ] **Step 9: Write the failing test for `ReportService.generate`'s freshness-aware trust translation**
+
+`tests/service/report-service.test.ts` already exists with 2 tests, using a `makeGeneratableProject(repo)` helper that seeds all 8 `RELEASE_BLOCKING_CONTROLS` with `PASS` assessments — but those assessment literals, like `tests/service/analysis-service.test.ts`'s, predate `runId`/`profileRevision`. Fix `makeGeneratableProject`'s loop to add `runId: "RUN-1", profileRevision: 1,` to each saved `ControlAssessment` (the fixture already creates `RUN-1` at `profileRevision: 1` and the project at `profileRevision: 1`, so this makes every seeded assessment fresh by construction — the 2 existing tests need no other change). Then append a new `describe` block proving the same staleness/ACCEPTED_RISK-invalidity translation Task 3 added to `AnalysisService` also applies here:
+
+```ts
+import { RELEASE_BLOCKING_CONTROLS } from "../../src/core/release-evaluator.js"; // already imported — do not duplicate
+
+describe("ReportService.generate — freshness-aware trust translation", () => {
+  it("a stale assessment on a non-blocking-irrelevant control still lowers this report's coverage, even though a direct getScore call would not reflect it", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo); // all 8 blocking controls PASS, fresh (profileRevision 1)
+    // Move the project's profile on — every already-recorded assessment is now stale.
+    const project = await repo.getProject("PRJ-1");
+    await repo.saveProject({ ...project, profileRevision: 2 });
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(report.releaseEvaluation.result).not.toBe("approved"); // every blocking control is now effectively NOT_TESTED
+    expect(report.score.coverage.coveragePercent).toBe(0); // the saved report's own score reflects staleness too
+  });
+
+  it("an ACCEPTED_RISK assessment whose RiskAcceptance has since expired is reflected as not-yet-verified in the saved report, without mutating the stored assessment", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo);
+    const [firstBlockingControl] = [...RELEASE_BLOCKING_CONTROLS];
+    await repo.saveRiskAcceptance("PRJ-1", {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: firstBlockingControl, findingIds: [],
+      reason: "r", compensatingControls: [], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2026-09-01T00:00:00.000Z", // expired before NOW
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    });
+    await repo.saveControlAssessment({
+      assessmentId: "A-ACCEPTED", projectId: "PRJ-1", controlId: firstBlockingControl, controlVersion: 1,
+      runId: "RUN-1", profileRevision: 1,
+      applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+      status: "ACCEPTED_RISK", evidenceIds: [], findingIds: [], riskAcceptanceId: "RA-001",
+      owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: NOW, nextReviewAt: null, notes: null,
+    });
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(report.releaseEvaluation.blockingControlsNotVerified).toContain(firstBlockingControl);
+    const [stored] = (await repo.getControlAssessments("PRJ-1")).filter((a) => a.controlId === firstBlockingControl);
+    expect(stored.status).toBe("ACCEPTED_RISK"); // stored record is never mutated
+  });
+});
+```
+
+Add `const NOW = "2026-10-06T00:00:00.000Z";` near the top of the file if it doesn't already define one at this exact value distinct from the existing module-level `NOW` — check first: the file already has `const NOW = "2026-09-30T00:00:00.000Z";` at the top, reuse that existing constant for both new tests (passing it as the service's injected clock, same as the file's existing tests already do) rather than introducing a second, confusingly-similar constant — the `"expired before NOW"` comment in the second test should reference whatever the file's real `NOW` constant value is.
+
+- [ ] **Step 10: Run to verify it fails**
+
+Run: `npx vitest run tests/service/report-service.test.ts`
+Expected: the 2 pre-existing tests PASS (now that their fixture's assessments are fresh). The 2 new tests FAIL — `ReportService.generate` doesn't translate anything yet.
+
+- [ ] **Step 11: Implement the `ReportService.generate` fix**
+
+In `src/service/report-service.ts`, add the import:
+
+```ts
+import { translateAssessmentsForTrust } from "../core/risk-acceptance.js";
+```
+
+Replace the body of `generate` from the `const normalizedFindingsForScore` line through the `evaluateRelease({...})` call with:
+
+```ts
+    const normalizedFindingsForScore: ScoreFindingInput[] = findings.map((f) => ({
+      controlIds: f.controlIds,
+      severity: normalizeFindingSeverity(f.severity),
+      status: f.status,
+    }));
+
+    const riskAcceptances = await this.repository.getRiskAcceptances(input.projectId);
+    const translatedAssessments = translateAssessmentsForTrust(assessments, project.profileRevision, riskAcceptances, this.now());
+
+    let score: Score;
+    try {
+      score = calculateScore(translatedAssessments, controls, normalizedFindingsForScore, scoreModel);
+    } catch (err) {
+      throw new ServiceError("PRECONDITION_FAILED", (err as Error).message, { projectId: input.projectId });
+    }
+
+    const normalizedFindingsForRelease: FindingInput[] = findings.map(normalizeFinding);
+
+    let releaseEvaluation: ReleaseEvaluation;
+    try {
+      releaseEvaluation = evaluateRelease({
+        score, findings: normalizedFindingsForRelease, attackPaths: [], assessments: translatedAssessments,
+        securityLevel: project.profile.securityLevel,
+      });
+    } catch (err) {
+      throw new ServiceError("PRECONDITION_FAILED", (err as Error).message, { projectId: input.projectId });
+    }
+```
+
+(The old `normalizedAssessments` variable — the raw, untranslated `{controlId, status}` map — is removed entirely; `translatedAssessments` replaces it as the single array fed to both `calculateScore` and `evaluateRelease`, matching `AnalysisService.evaluateRelease`'s structure exactly.)
+
+- [ ] **Step 12: Run to verify it passes**
+
+Run: `npx vitest run tests/service/report-service.test.ts`
+Expected: PASS, all 4 tests.
+
+- [ ] **Step 13: Run the full suite and fix any other tests that construct a service or call `evaluateRelease`/`getScore`/`generate` against fixtures lacking `profileRevision`-consistent data**
 
 Run: `npx vitest run`
-Expected: likely failures in `tests/mcp/tools/analysis-report-tools.test.ts` and possibly `tests/service/report-service.test.ts` — any test whose fixture seeds `ControlAssessment`s without `profileRevision` matching the project's `profileRevision` (defaulted to some value by Task 2's schema change) will now see those assessments treated as stale, flipping previously-`"approved"` expectations to `"indeterminate"`. For each failing test: find its fixture-construction helper (e.g. `makeConnectedClient`/`makeGeneratableProject`, the same kind of helper Task 2's own test file uses) and ensure every `ControlAssessment` literal it saves includes `profileRevision` equal to whatever the project's own `profileRevision` is in that same fixture (and `runId` matching a run that fixture also creates, since that field is now required by Task 2's schema change). Do not weaken any assertion to work around this — the fix is always "make the fixture data consistent," never "loosen the check."
+Expected: likely failures remain in `tests/mcp/tools/analysis-report-tools.test.ts` — any test whose fixture seeds `ControlAssessment`s without `profileRevision` matching the project's `profileRevision` will now see those assessments treated as stale, flipping previously-`"approved"` expectations. Find its fixture-construction helper and ensure every `ControlAssessment` literal it saves includes `profileRevision` equal to the project's own `profileRevision` in that same fixture, and `runId` matching a run the fixture also creates. Do not weaken any assertion to work around this — the fix is always "make the fixture data consistent," never "loosen the check."
 
-- [ ] **Step 7: Update `evaluate_release`'s tool description**
+- [ ] **Step 14: Update `evaluate_release`'s tool description**
 
 In `src/mcp/tools/evaluate-release.ts`, the current description already correctly explains the three-gate worst-wins combination from the previous spec. Add one clause covering what this spec changes about what `"indeterminate"` can now mean. Change:
 
@@ -1345,7 +1641,7 @@ to:
         "the same project. `blockingControlFailures` and " +
 ```
 
-- [ ] **Step 8: Typecheck and run the full suite**
+- [ ] **Step 15: Typecheck and run the full suite**
 
 Run: `npx tsc --noEmit`
 Expected: clean.
@@ -1353,32 +1649,43 @@ Expected: clean.
 Run: `npx vitest run`
 Expected: PASS, every test file.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 16: Commit**
 
 ```bash
-git add src/service/analysis-service.ts src/mcp/tools/evaluate-release.ts \
-  tests/service/analysis-service.test.ts tests/mcp/tools/analysis-report-tools.test.ts
-git commit -m "feat(service): make evaluateRelease trust-aware — staleness and ACCEPTED_RISK re-validated at read time
+git add src/core/risk-acceptance.ts src/service/analysis-service.ts src/service/report-service.ts \
+  src/mcp/tools/evaluate-release.ts \
+  tests/core/risk-acceptance.test.ts tests/service/analysis-service.test.ts tests/service/report-service.test.ts \
+  tests/mcp/tools/analysis-report-tools.test.ts
+git commit -m "feat(core,service): make every release-evaluation path trust-aware
 
-evaluateRelease now translates each assessment through two checks
-before it ever reaches the pure core evaluateRelease/calculateScore
-functions: is its profileRevision still current, and (if
-ACCEPTED_RISK) is its backing RiskAcceptance still effectively valid
-right now, not just when it was recorded. A translated-to-NOT_TESTED
-assessment never mutates the stored ControlAssessment — only this
-evaluation's in-memory view changes.
+Both AnalysisService.evaluateRelease and ReportService.generate now
+translate assessments through a shared translateAssessmentsForTrust()
+before computing a score or release evaluation: is each assessment's
+profileRevision still current, and (if ACCEPTED_RISK) is its backing
+RiskAcceptance still effectively valid right now, not just when it was
+recorded. A translated-to-NOT_TESTED assessment never mutates the
+stored ControlAssessment — only each call's in-memory view changes.
 
-Also fixes a consistency bug the translation step would otherwise
-have introduced: evaluateRelease previously delegated to getScore()
-for its coverage number, which reads raw assessments — inconsistent
-with the Control Gate's now-freshness-aware view from the same
-evaluation. evaluateRelease now calls calculateScore() directly with
-the same translated assessments array used for the Control Gate.
-getScore() itself, and the standalone get_score tool, are unchanged
-and continue reporting raw coverage.
+ReportService.generate needed the identical fix AnalysisService did:
+it independently duplicates the same calculateScore + evaluateRelease
+pattern from its own raw assessments read, entirely separate from
+AnalysisService. Left unfixed, generate_report would have kept
+producing a stale-blind releaseEvaluation/score in every saved
+ProjectReport — found during this plan's final review round by reading
+report-service.ts directly, not anticipated in the original plan.
+
+Also fixes the Coverage Gate consistency bug the translation step
+would otherwise have introduced in AnalysisService: evaluateRelease
+previously delegated to getScore() for its coverage number, which
+reads raw assessments — inconsistent with the Control Gate's
+freshness-aware view from the same evaluation. Both services now call
+calculateScore() directly with the same translated assessments array
+used for their Control Gate input. getScore() itself, and the
+standalone get_score tool, are unchanged and continue reporting raw
+coverage.
 
 src/core/release-evaluator.ts and src/core/score.ts are both
-untouched by this change — only how analysis-service.ts calls them.
+untouched by this change — only how the two services call them.
 
 See docs/superpowers/specs/2026-10-05-assessment-trust-integrity-design.md"
 ```
@@ -1483,6 +1790,16 @@ describe("migrateProject", () => {
     expect(second.migrated).toBe(0);
     expect(second.skipped).toEqual([]);
   });
+
+  it("throws and leaves the file untouched if a transformed assessment would fail schema validation (pre-existing corruption, not something the migration itself can introduce)", () => {
+    const corrupt = { ...assessment("A-001") };
+    delete (corrupt as Record<string, unknown>).assessedAt; // simulates pre-existing bad data, independent of this migration
+    writeProject("PRJ-CORRUPT", [{ runId: "RUN-1", profileRevision: 3 }], [corrupt]);
+    const before = readFileSync(join(dir, "projects", "PRJ-CORRUPT", "assessments.json"), "utf-8");
+    expect(() => migrateProject(dir, "PRJ-CORRUPT")).toThrow(/schema validation/);
+    const after = readFileSync(join(dir, "projects", "PRJ-CORRUPT", "assessments.json"), "utf-8");
+    expect(after).toBe(before); // nothing written — the safety net aborts before any write
+  });
 });
 ```
 
@@ -1493,15 +1810,22 @@ Expected: FAIL — `scripts/migrate-control-assessment-profile-revision.ts` does
 
 - [ ] **Step 3: Implement the migration script**
 
-Create `scripts/migrate-control-assessment-profile-revision.ts`:
+Create `scripts/migrate-control-assessment-profile-revision.ts`. Two hardening details added after this plan's final GPT review round, beyond the original draft: an **atomic write** (tmp-file-then-rename, mirroring `writeJsonAtomic`'s existing pattern in `src/core/repository.ts` — inlined here rather than importing that function, since it isn't exported, and this script is already an intentional, narrowly-scoped exception to going through the repository class at all), and a **post-transformation schema validation pass** before writing anything, using this codebase's existing `compileSchemaFromFile` from `src/validate.ts` — if any transformed record would fail the real `control-assessment-schema.json`, the script aborts with no write at all, rather than persisting data it can't guarantee is valid:
 
 ```ts
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
+import { compileSchemaFromFile } from "../src/validate.js";
 
 interface MigrationResult {
   migrated: number;
   skipped: { controlId: string; reason: string }[];
+}
+
+function writeJsonAtomic(path: string, data: unknown): void {
+  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  renameSync(tmpPath, path);
 }
 
 export function migrateProject(dataDir: string, projectId: string): MigrationResult {
@@ -1540,7 +1864,18 @@ export function migrateProject(dataDir: string, projectId: string): MigrationRes
     return { ...a, runId: run.runId, profileRevision: run.profileRevision };
   });
 
-  writeFileSync(assessmentsPath, JSON.stringify(next, null, 2));
+  if (result.migrated > 0) {
+    const validate = compileSchemaFromFile("data/schemas/control-assessment-schema.json");
+    const invalid = next.filter((a) => !validate(a));
+    if (invalid.length > 0) {
+      throw new Error(
+        `migrateProject(${projectId}): ${invalid.length} transformed assessment(s) failed schema validation — ` +
+        `aborting without writing. First error: ${JSON.stringify(validate.errors?.[0])}`
+      );
+    }
+    writeJsonAtomic(assessmentsPath, next);
+  }
+
   return result;
 }
 
@@ -1579,7 +1914,7 @@ if (process.argv[1]?.endsWith("migrate-control-assessment-profile-revision.ts"))
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `npx vitest run tests/scripts/migrate-control-assessment-profile-revision.test.ts`
-Expected: PASS, all 5 tests.
+Expected: PASS, all 6 tests.
 
 - [ ] **Step 5: Make `scripts/` typecheckable and runnable**
 
@@ -1641,9 +1976,9 @@ See docs/superpowers/specs/2026-10-05-assessment-trust-integrity-design.md"
 
 ## Self-Review Notes (for whoever runs this plan)
 
-- **Spec coverage:** §3.1 (RiskAcceptance) → Task 1 + the ACCEPTED_RISK-validation half of Task 2. §3.2 (N/A cross-check) → the N/A half of Task 2. §3.3 (staleness, Coverage Gate fix, migration) → the runId/profileRevision-capture half of Task 2, all of Task 3, and Task 4. §4 (Interface Changes) → covered across Tasks 1-3's Interfaces blocks. §5 (Testing Strategy) → every bullet maps to a step above (RiskAcceptance validity parameterized tests: Task 1 Step 8; record-time ACCEPTED_RISK cases: Task 2 Step 3; record-time N/A cases: Task 2 Step 3; runId/profileRevision capture + run-mismatch rejection: Task 2 Step 9; staleness metamorphic: Task 3 Step 2; ACCEPTED_RISK re-validation metamorphic: Task 3 Step 2; no-mutation-of-stored-data: Task 3 Step 2 (asserted directly in the same tests); Coverage Gate freshness: Task 3 Step 2's dedicated `describe` block; migration script: Task 4 Step 1). §7 (Out of Scope) → nothing in this plan touches audit trail/`assessedBy` identity, concurrent-write locking, a multi-party RiskAcceptance approval workflow, `src/core/score.ts`'s own logic, the standalone `get_score` tool's behavior, or per-control dependency tracking — confirmed by each task's file list above.
-- **Task ordering is a real dependency chain, not just numbering:** Task 2 imports `isRiskAcceptanceEffectivelyValid` and calls `repository.getRiskAcceptances` from Task 1; Task 3 depends on both Task 1 (same helper) and Task 2 (`ControlAssessment.profileRevision` existing, and the Coverage Gate fix needs `score.ts`'s `ControlAssessmentInput` shape which was already stable before this plan). Task 4 depends only on Task 2's schema change existing, but is sequenced last since it's the one task whose "test" is partly "run it for real against production data" (Step 6), which should happen once the rest of the trust-hardening logic that *reads* those fields is already in place and tested.
+- **Spec coverage:** §3.1 (RiskAcceptance) → Task 1 + the ACCEPTED_RISK-validation half of Task 2. §3.2 (N/A cross-check) → the N/A half of Task 2. §3.3 (staleness, shared trust translation, Coverage Gate fix in both `AnalysisService` and `ReportService`, migration) → the runId/profileRevision-capture half of Task 2, all of Task 3, and Task 4. §4 (Interface Changes) → covered across Tasks 1-3's Interfaces blocks. §5 (Testing Strategy) → every bullet maps to a step above (RiskAcceptance validity parameterized tests: Task 1 Step 8; record-time ACCEPTED_RISK cases: Task 2 Step 3; record-time N/A cases: Task 2 Step 3; runId/profileRevision capture + run-mismatch rejection: Task 2 Step 9; `translateAssessmentsForTrust` unit tests: Task 3 Step 1; staleness/ACCEPTED_RISK-re-validation/no-mutation behavior at the service level, for both `AnalysisService` and `ReportService`: Task 3 Steps 5 and 9; Coverage Gate freshness (the single most important condition from the final review): Task 3 Step 5's dedicated `describe` block, and Task 3 Step 9's first `ReportService` test; migration script, including the schema-validation safety net: Task 4 Step 1). §7 (Out of Scope) → nothing in this plan touches audit trail/`assessedBy` identity, concurrent-write locking, a multi-party RiskAcceptance approval workflow, `src/core/score.ts`'s own logic, the standalone `get_score` tool's behavior, or per-control dependency tracking — confirmed by each task's file list above.
+- **Task ordering is a real dependency chain, not just numbering:** Task 2 imports `isRiskAcceptanceEffectivelyValid` and calls `repository.getRiskAcceptances` from Task 1 (via the new `RiskAcceptanceService`'s sibling helper module, not the service itself — Task 2's own validation calls `isRiskAcceptanceEffectivelyValid` directly). Task 3 depends on both Task 1 (same helper, extended with `translateAssessmentsForTrust`) and Task 2 (`ControlAssessment.profileRevision`/`runId` existing). Task 4 depends only on Task 2's schema change existing, but is sequenced last since it's the one task whose "test" is partly "run it for real against production data" (Step 7), which should happen once the rest of the trust-hardening logic that *reads* those fields is already in place and tested.
 - **A known, intentional transient state inside Task 2:** between Task 2 Step 1 (schema requires `runId`/`profileRevision`) and Step 5 (the TS interface and service logic actually populate them), `npx tsc --noEmit` is not run — Step 1 is purely a JSON Schema + Ajv-test change, which doesn't affect TypeScript compilation at all (the schema and the TS interface are validated independently in this codebase, as evidenced by `tests/schemas/*.test.ts` being Ajv-only and separate from the `.ts` interfaces). This is why Step 1's "run to verify" step is scoped to the schema test file only, not the whole suite.
-- **Why Task 3 widens `AnalysisService.evaluateRelease`'s internal implementation so much instead of a smaller patch:** the Coverage Gate bug (score computed from raw assessments while the Control Gate now sees a translated view) can only be fixed by computing both gates' inputs from the same array — there is no smaller change that fixes the inconsistency without doing this. The alternative (teaching `getScore()` itself to accept a pre-translated assessments array as an optional parameter) was considered and rejected: it would make `getScore()`'s public contract more complex for a capability only `evaluateRelease` needs, whereas calling the already-exported `calculateScore()` directly from `evaluateRelease` keeps `getScore()` exactly as simple as it already is.
-- **Nothing in `src/core/release-evaluator.ts`, `src/core/score.ts`, `src/mcp/tools/record-assessment.ts`, `src/mcp/tools/get-score.ts`, `src/mcp/tools/generate-report.ts`, `src/core/report-builder.ts`, or `src/service/report-service.ts` needs modification** — all were checked against this plan's scope before writing it. `record-assessment.ts` (the MCP tool wrapper) needs no change because its `inputSchema` and handler both already pass `input` straight through to `AssessmentService.recordAssessment`, whose *signature* (`RecordAssessmentInput`) is unchanged by this plan — only its internal validation and what it stamps onto the saved `ControlAssessment` changed. `report-builder.ts`/`report-service.ts` were confirmed to never construct or read a raw `ControlAssessment` — they consume only `ScoreForReport`/`ReleaseEvaluationForReport`, both already-computed output shapes unaffected by this plan's input-side changes.
-- **If a plan executor finds a reason to touch any of the "no modification needed" files above, stop and re-check against the real current source** — this plan's authors verified they don't need it as of commit `cb5db16`.
+- **Why Task 3 touches two services instead of one, and why both go through a shared core helper instead of each having its own inline translation:** the Coverage Gate bug (score computed from raw assessments while the Control Gate sees a translated view) can only be fixed by computing both gates' inputs from the same array — there is no smaller change that fixes the inconsistency without doing this, for *each* caller independently. `ReportService.generate` was found, during this plan's final review round, to be a second independent caller of the exact same `calculateScore` + `evaluateRelease` pattern — confirmed by reading `src/service/report-service.ts` directly before writing Task 3, not assumed. Putting `translateAssessmentsForTrust` in `src/core/risk-acceptance.ts` (pure, no I/O) rather than inlining the same logic separately in both `AnalysisService` and `ReportService` was a deliberate DRY choice: two independent inline copies would have been exactly the kind of drift-prone duplication this plan's own motivating bug (the original dead `incidentResponseVerified`/`backupRestoreVerified` calculation, from the prior spec) came from. The alternative of teaching `getScore()` itself to accept a pre-translated assessments array as an optional parameter was considered and rejected: it would make `getScore()`'s public contract more complex for a capability only the two release-decision call sites need, whereas calling the already-exported `calculateScore()` directly keeps `getScore()` exactly as simple as it already is.
+- **Nothing in `src/core/release-evaluator.ts`, `src/core/score.ts`, `src/mcp/tools/record-assessment.ts`, `src/mcp/tools/get-score.ts`, `src/mcp/tools/generate-report.ts`, or `src/core/report-builder.ts` needs modification** — all were checked against this plan's scope before writing it. `record-assessment.ts` (the MCP tool wrapper) needs no change because its `inputSchema` and handler both already pass `input` straight through to `AssessmentService.recordAssessment`, whose *signature* (`RecordAssessmentInput`) is unchanged by this plan — only its internal validation and what it stamps onto the saved `ControlAssessment` changed. `report-builder.ts` was confirmed to never construct or read a raw `ControlAssessment` — it consumes only `ScoreForReport`/`ReleaseEvaluationForReport`, both already-computed output shapes unaffected by this plan's input-side changes. **`src/service/report-service.ts` is explicitly NOT on this list** — an earlier draft of this plan incorrectly included it, on the mistaken belief (never actually verified by reading the file) that it behaved like `report-builder.ts`. Task 3 modifies it. This line is left here as a record of that correction, not a claim it's untouched.
+- **If a plan executor finds a reason to touch any of the "no modification needed" files above, stop and re-check against the real current source** — this plan's authors verified they don't need it as of commit `24ca2db`.
