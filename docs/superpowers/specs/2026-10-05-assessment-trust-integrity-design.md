@@ -233,16 +233,20 @@ instead.
 reaches the pure core `evaluateRelease` function, so that function's
 interface and internal logic do not change at all.
 
-**Write path.** `ControlAssessment` gains `profileRevision: number`
-(required). `recordAssessment` captures it from the **run's** pinned
-`profileRevision` (`run.profileRevision`, from the already-fetched —
-currently discarded — `getRun` result), not a fresh read of the project's
-current `profileRevision`. This matters: the run is the system's existing
-snapshot boundary (`AssessmentRun.profileRevision` is captured once, at
-`start_assessment_run`), so an assessment's `profileRevision` should record
-*what the run believed the profile was*, which is the correct provenance
-question. Whether that belief is still *current* is a separate question,
-answered at read time (next paragraph).
+**Write path.** `ControlAssessment` gains **two** new required fields:
+`runId: string` and `profileRevision: number`. Both are captured from the
+**run's** pinned values (`run.runId`/`run.profileRevision`, from the
+already-fetched — currently discarded — `getRun` result), not a fresh read
+of the project's current state. `profileRevision` matters because the run
+is the system's existing snapshot boundary (`AssessmentRun.profileRevision`
+is captured once, at `start_assessment_run`), so an assessment's
+`profileRevision` should record *what the run believed the profile was*,
+which is the correct provenance question. `runId` was added after this
+design's final review round specifically to make that provenance an exact,
+joinable fact rather than a bare number — it is what makes §3.3's migration
+step a real join instead of a per-project heuristic (see below). Whether a
+`profileRevision` belief is still *current* is a separate question, answered
+at read time (next paragraph).
 
 **New write-time guard.** `recordAssessment` now also rejects
 (`PRECONDITION_FAILED`, matching this codebase's existing use of that code
@@ -256,13 +260,17 @@ way to tell them apart later.
 **Read path — the actual staleness check.** `AnalysisService.evaluateRelease`
 already builds a normalized assessments array via `.map()` before calling
 core `evaluateRelease`. Both staleness and ACCEPTED_RISK validity are
-folded into that same translation step:
+folded into that same translation step. **One `now` value is captured once,
+at the start of `evaluateRelease`, and reused for every `RiskAcceptance`
+check in the call** — not re-derived per assessment — so a single
+evaluation can never see two different answers for the same expiry
+boundary:
 
 ```ts
 // src/service/analysis-service.ts, inside evaluateRelease(projectId)
 const riskAcceptances = await this.repository.getRiskAcceptances(projectId);
 const riskAcceptanceById = new Map(riskAcceptances.map((ra) => [ra.riskAcceptanceId, ra]));
-const now = this.now();
+const now = this.now(); // captured once; reused for every assessment below
 
 const normalizedAssessments: ControlAssessmentInput[] = assessments.map((a) => {
   const stale = a.profileRevision !== project.profileRevision;
@@ -285,27 +293,65 @@ constructor parameter defaulting to `() => new Date().toISOString()`) —
 the same pattern `AssessmentService` already uses, needed here for
 deterministic tests of the `ACCEPTED_RISK`-expiry path.
 
-**`src/core/release-evaluator.ts` is untouched by this spec.** No new
-parameters, no new fields on `ControlAssessmentInput`, no new logic in the
-Control Gate loop. Everything in this section lives in
-`src/service/analysis-service.ts` and the new `src/core/risk-acceptance.ts`
-helper.
+**The Coverage Gate must use this same translated array — this is the
+single most important correctness condition in this spec.** `evaluateRelease`
+currently calls `this.getScore(projectId)` to get the `score` object it
+feeds into core `evaluateRelease` (which contains `coverage.coveragePercent`,
+consumed by the Coverage Gate). `getScore` computes coverage from the
+**raw**, untranslated assessments. Left as-is, this creates exactly the
+inconsistency the previous paragraph's translation step exists to prevent:
+the Control Gate would correctly see a stale or invalidly-accepted
+blocking control as unverified, while the Coverage Gate — reading a
+coverage percentage computed as if that same assessment were still fresh
+and trustworthy — could report high coverage and, in the case where the
+*stale* assessments are all on *non-blocking* controls, let an `"approved"`
+verdict through that a freshness-aware coverage reading would have
+correctly downgraded to `"indeterminate"`. `evaluateRelease` must stop
+delegating to `this.getScore(projectId)` and instead call the exported
+`calculateScore(normalizedAssessments, controls, normalizedFindings, model)`
+directly, using the *same* `normalizedAssessments` array built above —
+`score.ts`'s `ControlAssessmentInput` is already the identical
+`{ controlId, status }` shape `release-evaluator.ts` uses, so the same
+array serves both calls with no reshaping. The standalone `get_score` MCP
+tool is unaffected and keeps reading raw assessments (see §7) — only the
+score `evaluateRelease` computes and feeds to its own Coverage Gate needs
+to be freshness-aware, because only that score drives a release decision.
 
-**Existing-data migration.** Adding `profileRevision` as a *required*
-`ControlAssessment` field breaks every assessment already recorded for the
+**`src/core/release-evaluator.ts` and `src/core/score.ts` are untouched by
+this spec.** No new parameters, no new fields on either file's
+`ControlAssessmentInput`, no new logic in the Control Gate or `calculateScore`
+itself. Everything in this section is a change to *how*
+`src/service/analysis-service.ts` calls those two already-exported pure
+functions, plus the new `src/core/risk-acceptance.ts` helper.
+
+**RiskAcceptance scope is profile-revision-independent.** A `RiskAcceptance`
+accepts risk on a control's current `FAIL` state until `expiresAt`,
+regardless of profile revisions that occur in between — it is not
+re-validated against `applicability` on every read, only against its own
+`status`/`approvedAt`/`expiresAt` (§3.1). If the accepted control becomes
+genuinely `not_applicable` under a later profile, that is already handled
+independently by the normal applicability/status mechanism (§3.2), not by
+this spec's staleness check. This is a one-sentence semantic choice, not a
+new field — stated here so a future reader doesn't have to reverse-engineer
+it from behavior.
+
+**Existing-data migration.** Adding `runId`/`profileRevision` as *required*
+`ControlAssessment` fields breaks every assessment already recorded for the
 6 real-world validation projects under `data/projects/` (now gitignored,
 per LEGAL-GITIGNORE-001, but still real data this tool needs to keep
-working with). These records have no `profileRevision` and — since
-`ControlAssessment` has never stored a `runId` either — no stored link back
-to which run produced them. A one-time migration script
-(`scripts/migrate-control-assessment-profile-revision.ts`, run once, not
-part of the ongoing MCP server or its test suite) backfills each project:
-for each project with exactly one `AssessmentRun` (true for all 6, by
-construction of how this tool has been used so far — single-pass
-validation runs), stamp every `ControlAssessment` with that run's
-`profileRevision`. A project with more than one run is skipped and
-reported for manual review rather than guessed at (none currently exist,
-but the script must not silently guess wrong for one that does later).
+working with) — these pre-date both fields entirely. A one-time migration
+script (`scripts/migrate-control-assessment-profile-revision.ts`, run once,
+not part of the ongoing MCP server or its test suite) backfills **per
+assessment, by an explicit join**, not by a per-project headcount
+assumption: for each existing `ControlAssessment`, find the single
+`AssessmentRun` in that project whose timing is consistent with when the
+assessment was recorded (this codebase's validation projects each have
+exactly one run today, making the join unambiguous — but the script finds
+and verifies that match per assessment rather than assuming "project has
+one run" up front), and stamp that run's `runId`/`profileRevision` onto it.
+Any assessment where no matching run is found, more than one run matches,
+or the matched run itself has no `profileRevision` is skipped and reported
+for manual review rather than guessed at.
 
 ## 4. Interface Changes
 
@@ -313,18 +359,29 @@ but the script must not silently guess wrong for one that does later).
   `risk-acceptance-schema.json` plus the two new fields
   (`revokedAt: string | null`, `revokedReason: string | null`).
 - `SecurityRepository` gains `getRiskAcceptances(projectId): Promise<RiskAcceptance[]>`
-  and `saveRiskAcceptance(projectId: string, ra: RiskAcceptance): Promise<void>`.
-- `ControlAssessment.profileRevision: number` — new required field.
+  and `saveRiskAcceptance(projectId: string, ra: RiskAcceptance): Promise<void>`
+  (upsert by `riskAcceptanceId`).
+- `ControlAssessment` gains two new required fields: `runId: string` and
+  `profileRevision: number`.
 - Two new MCP tools: `record_risk_acceptance`, `revoke_risk_acceptance`.
+  `revoke_risk_acceptance` accepts any non-`"revoked"` status as its
+  starting state; a second revoke of an already-`"revoked"` record is
+  idempotent (returns the existing record unchanged, not an error — a
+  retried tool call should never fail just because it succeeded already).
 - `src/core/risk-acceptance.ts` (new file): exports
   `isRiskAcceptanceEffectivelyValid(ra: RiskAcceptance, nowIso: string): boolean`.
 - `AnalysisService`'s constructor gains an optional `now: () => string`
   parameter (default `() => new Date().toISOString()`), matching
   `AssessmentService`'s existing constructor shape.
-- `src/core/release-evaluator.ts`: **no changes.**
-- `src/core/score.ts`: **no changes** (see §7 — staleness and
-  `ACCEPTED_RISK` validity are deliberately not propagated to
-  coverage/score calculations by this spec).
+- `src/core/release-evaluator.ts`: **no changes** — its exported
+  `ControlAssessmentInput` and `evaluateRelease` signature are untouched.
+- `src/core/score.ts`: **no changes to the file itself** — `calculateScore`'s
+  exported signature and logic are untouched. What changes is who calls it
+  and with what: `AnalysisService.evaluateRelease` now calls it directly
+  with the staleness/validity-translated assessments array (§3.3), instead
+  of delegating to `this.getScore(projectId)`, which continues to compute
+  coverage from raw assessments for its own (unaffected) standalone callers
+  (the `get_score` MCP tool — see §7).
 
 ## 5. Testing Strategy
 
@@ -340,11 +397,11 @@ but the script must not silently guess wrong for one that does later).
   matching override (new behavior), and the construction argument itself —
   assert that no code path can produce a saved `ControlAssessment` with
   `status: "N/A"` and `applicability.finalResult !== "not_applicable"`.
-- **profileRevision capture and run-mismatch rejection:** `recordAssessment`
-  stamps `run.profileRevision` (not the project's live value) onto the
-  saved assessment; a run whose `profileRevision` no longer matches the
-  project's current one is rejected with `PRECONDITION_FAILED` before any
-  assessment is written.
+- **runId/profileRevision capture and run-mismatch rejection:**
+  `recordAssessment` stamps `run.runId`/`run.profileRevision` (not the
+  project's live values) onto the saved assessment; a run whose
+  `profileRevision` no longer matches the project's current one is
+  rejected with `PRECONDITION_FAILED` before any assessment is written.
 - **evaluateRelease staleness translation (metamorphic):** an otherwise-approved
   baseline where every `RELEASE_BLOCKING_CONTROLS` member has
   `profileRevision` equal to the project's current one; flip exactly one
@@ -364,10 +421,22 @@ but the script must not silently guess wrong for one that does later).
   `"NOT_TESTED"`) after an `evaluateRelease` call reveals its risk
   acceptance expired — only the evaluator's internal, in-memory view is
   translated.
-- **Migration script:** run against fixture data mirroring the real 6
-  projects' shape (single run each), assert every `ControlAssessment`
-  gets its run's `profileRevision`; a fixture project with two runs is
-  asserted to be skipped and reported, not guessed.
+- **Coverage Gate freshness (the review round's top-priority check):** a
+  fixture where every `RELEASE_BLOCKING_CONTROLS` member is fresh and
+  `PASS`, but several *non-blocking* controls are stale — assert
+  `evaluateRelease`'s `controlCoverage` reflects the translated
+  (freshness-aware) view, not the raw one, and that a case engineered so
+  the raw coverage would clear `MIN_COVERAGE_FOR_APPROVAL_PERCENT` while
+  the translated coverage would not actually produces `"indeterminate"`,
+  not `"approved"`. A sibling test calls `get_score` directly on the same
+  fixture and asserts it still reports the raw (non-translated) coverage
+  — confirming the two code paths are intentionally different, not
+  accidentally inconsistent.
+- **Migration script:** run against fixture data shaped like the real 6
+  projects (one run each), assert every `ControlAssessment` gets its
+  matching run's `runId`/`profileRevision` via the join (not an assumed
+  count); a fixture project with two runs, zero runs, or an assessment
+  that matches no run is asserted to be skipped and reported, not guessed.
 
 ## 6. Adoption Log (external review)
 
@@ -417,8 +486,27 @@ that review relationship). The reviewer:
   with the reviewer's specific guidance to backfill from the assessment's
   originating run rather than the project's current profile revision
   (which would fabricate false provenance for historical data).
-- Suggested propagating staleness/invalid-`ACCEPTED_RISK` translation into
-  `score.ts`'s coverage calculation too. Declined for this spec — see §7.
+- **Caught a real consistency bug in the initial draft's Coverage Gate**:
+  `evaluateRelease` was going to keep delegating to `this.getScore(projectId)`
+  for its coverage number, which computes coverage from raw, untranslated
+  assessments — inconsistent with the Control Gate's freshness-aware view
+  from the very same evaluation, and capable of letting a release through
+  as `"approved"` that a freshness-aware coverage reading would correctly
+  have downgraded to `"indeterminate"`. Reviewer called this the single
+  most important correctness condition in the final review. Adopted: §3.3
+  now has `evaluateRelease` call `calculateScore` directly with the same
+  translated assessments array, instead of delegating to `getScore`. The
+  standalone `get_score` tool is explicitly left alone (§7) — only the
+  release-gating path needed to change.
+- Suggested the migration backfill be an explicit per-assessment join
+  against `AssessmentRun` (via a new `runId` field) rather than a
+  per-project "exactly one run" headcount assumption. Adopted — §3.3's
+  `ControlAssessment` now carries `runId` as well as `profileRevision`,
+  and the migration script joins per assessment rather than assuming.
+- Confirmed the `revoke_risk_acceptance` addition (previous round) is a
+  real improvement — `revoked` already existing in the schema's `status`
+  enum with no way to reach it was a worse state than not having the
+  field at all.
 
 ## 7. Out of Scope
 
@@ -436,12 +524,13 @@ that review relationship). The reviewer:
   §3.1 documents the current single-actor trust model honestly; building
   a real workflow needs real identity, which (again) needs the deployment
   model decision.
-- **Propagating staleness or `ACCEPTED_RISK` invalidity into
-  `src/core/score.ts`'s coverage/score calculation.** Raised during
-  review as a reasonable follow-up — an assessment that's effectively
-  `NOT_TESTED` for release-gate purposes arguably shouldn't count as
-  "covered" for coverage-percentage purposes either. Declined here because
-  it's a genuinely separate consumer with its own existing behavior this
+- **Propagating staleness or `ACCEPTED_RISK` invalidity into the
+  standalone `get_score` MCP tool's coverage/score output.** The
+  release-gating path (`evaluate_release`) *does* now use a freshness-aware
+  coverage calculation (§3.3) — this bullet is narrower: a direct
+  `get_score` call, independent of `evaluate_release`, still reports
+  coverage computed from raw assessments. Declined here because it's a
+  genuinely separate consumer with its own existing behavior this
   spec hasn't audited, and the user-approved scope for this spec was the
   Trust/Control Gate axis specifically. A real, separate follow-up
   candidate, not silently dropped.
