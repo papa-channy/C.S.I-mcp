@@ -33,16 +33,15 @@ async function makeConnectedClient() {
   };
   repo.controls = [];
   await repo.saveRun({ runId: "RUN-1", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1, catalogVersion: "9.9.9", batchIds: [], status: "running", startedAt: NOW, completedAt: null });
-  await repo.saveControlAssessment({
-    assessmentId: "A-1", projectId: "PRJ-1", controlId: "GOV-IR-001", controlVersion: 1,
-    applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
-    status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: NOW, nextReviewAt: null, notes: null,
-  });
-  await repo.saveControlAssessment({
-    assessmentId: "A-2", projectId: "PRJ-1", controlId: "OPS-BACKUP-TEST-001", controlVersion: 1,
-    applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
-    status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: NOW, nextReviewAt: null, notes: null,
-  });
+  // All 8 RELEASE_BLOCKING_CONTROLS must have assessments for an "approved" result
+  const blockingControls = ["IAM-AUTH-003", "IAM-AUTH-005", "IAM-AUTHZ-001", "IAM-AUTHZ-002", "DATA-ENC-002", "DATA-KEYSEP-001", "OPS-BACKUP-TEST-001", "GOV-IR-001"];
+  for (let i = 0; i < blockingControls.length; i++) {
+    await repo.saveControlAssessment({
+      assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,
+      applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+      status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: NOW, nextReviewAt: null, notes: null,
+    });
+  }
 
   const analysisService = new AnalysisService(repo);
   const reportService = new ReportService(repo, () => NOW);

@@ -35,6 +35,8 @@ export interface ReleaseEvaluationForReport {
   residualRisksAccepted: number;
   incidentResponseVerified: boolean;
   backupRestoreVerified: boolean;
+  blockingControlFailures: string[];
+  blockingControlsNotVerified: string[];
   result: "approved" | "blocked" | "indeterminate";
 }
 

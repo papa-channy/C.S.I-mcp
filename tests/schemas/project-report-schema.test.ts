@@ -48,6 +48,8 @@ describe("project-report-schema", () => {
       residualRisksAccepted: 0,
       incidentResponseVerified: true,
       backupRestoreVerified: true,
+      blockingControlFailures: ["IAM-AUTH-005"],
+      blockingControlsNotVerified: [],
       result: "blocked",
     },
     summary: "Two critical findings remain open; release blocked until resolved.",

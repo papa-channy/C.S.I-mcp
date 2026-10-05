@@ -38,6 +38,8 @@ describe("release-evaluation-schema", () => {
     residualRisksAccepted: 3,
     incidentResponseVerified: true,
     backupRestoreVerified: true,
+    blockingControlFailures: [],
+    blockingControlsNotVerified: [],
     result: "approved",
     evaluatedAt: "2026-09-16T05:00:00Z",
   };

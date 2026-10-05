@@ -87,9 +87,11 @@
         "residualRisksAccepted": { "type": "integer", "minimum": 0 },
         "incidentResponseVerified": { "type": "boolean" },
         "backupRestoreVerified": { "type": "boolean" },
+        "blockingControlFailures": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "blockingControlsNotVerified": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "result": { "type": "string", "enum": ["approved", "blocked", "indeterminate"] }
       },
-      "required": ["gate", "controlCoverage", "criticalFindings", "highFindings", "unblockedCriticalAttackPaths", "residualRisksAccepted", "incidentResponseVerified", "backupRestoreVerified", "result"],
+      "required": ["gate", "controlCoverage", "criticalFindings", "highFindings", "unblockedCriticalAttackPaths", "residualRisksAccepted", "incidentResponseVerified", "backupRestoreVerified", "blockingControlFailures", "blockingControlsNotVerified", "result"],
       "additionalProperties": false
     },
     "summary": { "type": "string", "minLength": 1 }

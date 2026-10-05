@@ -47,7 +47,9 @@ const score: ScoreForReport = {
 const releaseEvaluation: ReleaseEvaluationForReport = {
   gate: 4, controlCoverage: 80, criticalFindings: 0, highFindings: 0,
   unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0,
-  incidentResponseVerified: true, backupRestoreVerified: true, result: "approved",
+  incidentResponseVerified: true, backupRestoreVerified: true,
+  blockingControlFailures: [], blockingControlsNotVerified: [],
+  result: "approved",
 };
 
 const run = { runId: "RUN-1", projectId: "PRJ-1", catalogVersion: "1.0.0", profileRevision: 1 };

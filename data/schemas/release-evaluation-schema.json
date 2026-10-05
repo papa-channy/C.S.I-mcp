@@ -13,13 +13,17 @@
     "residualRisksAccepted": { "type": "integer", "minimum": 0 },
     "incidentResponseVerified": { "type": "boolean" },
     "backupRestoreVerified": { "type": "boolean" },
+    "blockingControlFailures": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "blockingControlsNotVerified": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "result": { "type": "string", "enum": ["approved", "blocked", "indeterminate"] },
     "evaluatedAt": { "type": "string", "format": "date-time" }
   },
   "required": [
     "projectId", "gate", "controlCoverage", "criticalFindings", "highFindings",
     "unblockedCriticalAttackPaths", "residualRisksAccepted",
-    "incidentResponseVerified", "backupRestoreVerified", "result", "evaluatedAt"
+    "incidentResponseVerified", "backupRestoreVerified",
+    "blockingControlFailures", "blockingControlsNotVerified",
+    "result", "evaluatedAt"
   ],
   "additionalProperties": false
 }
