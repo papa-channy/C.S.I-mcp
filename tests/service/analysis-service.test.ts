@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AnalysisService } from "../../src/service/analysis-service.js";
 import { RELEASE_BLOCKING_CONTROLS } from "../../src/core/release-evaluator.js";
 import { FakeRepository } from "./fake-repository.js";
+import type { Control } from "../../src/core/repository.js";
 
 function setScoreModel(repo: FakeRepository) {
   repo.scoreModel = {
@@ -92,5 +93,116 @@ describe("AnalysisService.evaluateRelease", () => {
       status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: "2026-09-30T00:00:00.000Z", nextReviewAt: null, notes: null,
     });
     await expect(new AnalysisService(repo).evaluateRelease("PRJ-1")).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+});
+
+const NOW = "2026-10-05T12:00:00.000Z";
+
+function blockingControl(controlId: string, overrides: Partial<Control> = {}): Control {
+  return {
+    controlId, version: 1, status: "active", title: controlId, domain: "test", subdomain: "test",
+    layer: "prevent", group: "test", applicability: { when: { fact: "features.authentication", operator: "eq", value: true } },
+    ...overrides,
+  };
+}
+
+async function makeProjectRepo(profileRevision = 1) {
+  const repo = new FakeRepository();
+  await repo.saveProject({
+    projectId: "PRJ-1", name: "Demo", owner: "alice", createdAt: NOW, profileRevision,
+    profile: { securityLevel: "SVL-2", exposure: ["internet_public"], features: { authentication: true }, technologies: {} },
+  });
+  await repo.saveRun({
+    runId: "RUN-1", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision,
+    catalogVersion: "1.0.0", batchIds: [], status: "running", startedAt: NOW, completedAt: null,
+  });
+  repo.scoreModel = {
+    modelId: "USSVS-SCORE-DEFAULT", version: "1.0.0",
+    statusWeights: { PASS: 1.0, PARTIAL: 0.5, FAIL: 0, NOT_TESTED: 0 },
+    excludedStatuses: ["N/A", "ACCEPTED_RISK"],
+  };
+  return repo;
+}
+
+function passAssessment(controlId: string, overrides: Partial<import("../../src/core/repository.js").ControlAssessment> = {}) {
+  return {
+    assessmentId: `A-${controlId}`, projectId: "PRJ-1", controlId, controlVersion: 1,
+    runId: "RUN-1", profileRevision: 1,
+    applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" as const },
+    status: "PASS" as const, evidenceIds: [], findingIds: [], riskAcceptanceId: null,
+    owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: NOW, nextReviewAt: null, notes: null,
+    ...overrides,
+  };
+}
+
+describe("AnalysisService.evaluateRelease — staleness translation", () => {
+  it("a fresh PASS assessment (profileRevision matches project) contributes normally", async () => {
+    const repo = await makeProjectRepo(1);
+    repo.controls = [blockingControl("TEST-001")];
+    await repo.saveControlAssessment(passAssessment("TEST-001", { profileRevision: 1 }));
+    const service = new AnalysisService(repo, () => NOW);
+    const result = await service.evaluateRelease("PRJ-1");
+    expect(result.controlCoverage).toBe(100);
+  });
+
+  it("a stale assessment (profileRevision does not match the project's current one) is translated to NOT_TESTED for this evaluation", async () => {
+    const repo = await makeProjectRepo(2); // project moved to revision 2
+    repo.controls = [blockingControl("TEST-001")];
+    await repo.saveControlAssessment(passAssessment("TEST-001", { profileRevision: 1 })); // recorded under revision 1
+    const service = new AnalysisService(repo, () => NOW);
+    const result = await service.evaluateRelease("PRJ-1");
+    expect(result.controlCoverage).toBe(0); // the only control is now effectively NOT_TESTED
+    const [stored] = await repo.getControlAssessments("PRJ-1");
+    expect(stored.status).toBe("PASS"); // stored record is never mutated
+  });
+});
+
+describe("AnalysisService.evaluateRelease — ACCEPTED_RISK re-validation", () => {
+  it("an ACCEPTED_RISK assessment backed by a valid RiskAcceptance contributes normally (excluded from coverage denominator, same as before)", async () => {
+    const repo = await makeProjectRepo(1);
+    repo.controls = [blockingControl("TEST-001"), blockingControl("TEST-002")];
+    await repo.saveRiskAcceptance("PRJ-1", {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: "TEST-001", findingIds: [],
+      reason: "r", compensatingControls: [], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-10-01T00:00:00.000Z", expiresAt: "2026-12-01T00:00:00.000Z",
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    });
+    await repo.saveControlAssessment(passAssessment("TEST-001", { status: "ACCEPTED_RISK", riskAcceptanceId: "RA-001" }));
+    await repo.saveControlAssessment(passAssessment("TEST-002"));
+    const service = new AnalysisService(repo, () => NOW);
+    const result = await service.evaluateRelease("PRJ-1");
+    expect(result.controlCoverage).toBe(100); // TEST-001 excluded (ACCEPTED_RISK), TEST-002 assessed -> 100% of applicable
+  });
+
+  it("an ACCEPTED_RISK assessment whose RiskAcceptance has since expired is translated to NOT_TESTED, without mutating the stored assessment", async () => {
+    const repo = await makeProjectRepo(1);
+    repo.controls = [blockingControl("TEST-001")];
+    await repo.saveRiskAcceptance("PRJ-1", {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: "TEST-001", findingIds: [],
+      reason: "r", compensatingControls: [], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-09-01T00:00:00.000Z", expiresAt: "2026-10-01T00:00:00.000Z", // expired before NOW (2026-10-05)
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    });
+    await repo.saveControlAssessment(passAssessment("TEST-001", { status: "ACCEPTED_RISK", riskAcceptanceId: "RA-001" }));
+    const service = new AnalysisService(repo, () => NOW);
+    const result = await service.evaluateRelease("PRJ-1");
+    expect(result.controlCoverage).toBe(0); // now effectively NOT_TESTED, no longer excluded
+    const [stored] = await repo.getControlAssessments("PRJ-1");
+    expect(stored.status).toBe("ACCEPTED_RISK"); // stored record is never mutated
+  });
+});
+
+describe("AnalysisService.evaluateRelease — Coverage Gate uses the same translated view as the Control Gate", () => {
+  it("coverage computed inside evaluateRelease reflects staleness, even though standalone getScore does not", async () => {
+    const repo = await makeProjectRepo(2); // project at revision 2
+    repo.controls = [blockingControl("TEST-001")];
+    await repo.saveControlAssessment(passAssessment("TEST-001", { profileRevision: 1 })); // stale
+    const service = new AnalysisService(repo, () => NOW);
+
+    const released = await service.evaluateRelease("PRJ-1");
+    expect(released.controlCoverage).toBe(0); // freshness-aware: the stale PASS doesn't count as covered
+
+    const standalone = await service.getScore("PRJ-1");
+    expect(standalone.coverage.coveragePercent).toBe(100); // unaffected: getScore reads raw assessments
   });
 });

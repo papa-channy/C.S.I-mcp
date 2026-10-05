@@ -56,3 +56,41 @@ describe("ReportService.generate", () => {
     await expect(service.generate({ projectId: "PRJ-1", runId: "NOPE", summary: "x" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("ReportService.generate — freshness-aware trust translation", () => {
+  it("a stale assessment on a non-blocking-irrelevant control still lowers this report's coverage, even though a direct getScore call would not reflect it", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo); // all 8 blocking controls PASS, fresh (profileRevision 1)
+    // Move the project's profile on — every already-recorded assessment is now stale.
+    const project = await repo.getProject("PRJ-1");
+    await repo.saveProject({ ...project, profileRevision: 2 });
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(report.releaseEvaluation.result).not.toBe("approved"); // every blocking control is now effectively NOT_TESTED
+    expect(report.score.coverage.coveragePercent).toBe(0); // the saved report's own score reflects staleness too
+  });
+
+  it("an ACCEPTED_RISK assessment whose RiskAcceptance has since expired is reflected as not-yet-verified in the saved report, without mutating the stored assessment", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo);
+    const [firstBlockingControl] = [...RELEASE_BLOCKING_CONTROLS];
+    await repo.saveRiskAcceptance("PRJ-1", {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: firstBlockingControl, findingIds: [],
+      reason: "r", compensatingControls: [], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2026-09-01T00:00:00.000Z", // expired before NOW
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    });
+    await repo.saveControlAssessment({
+      assessmentId: "A-ACCEPTED", projectId: "PRJ-1", controlId: firstBlockingControl, controlVersion: 1,
+      runId: "RUN-1", profileRevision: 1,
+      applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+      status: "ACCEPTED_RISK", evidenceIds: [], findingIds: [], riskAcceptanceId: "RA-001",
+      owner: "csi-mcp-agent", assessedBy: "csi-mcp-agent", assessedAt: NOW, nextReviewAt: null, notes: null,
+    });
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(report.releaseEvaluation.blockingControlsNotVerified).toContain(firstBlockingControl);
+    const [stored] = (await repo.getControlAssessments("PRJ-1")).filter((a) => a.controlId === firstBlockingControl);
+    expect(stored.status).toBe("ACCEPTED_RISK"); // stored record is never mutated
+  });
+});

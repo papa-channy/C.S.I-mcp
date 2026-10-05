@@ -19,7 +19,12 @@ export function registerEvaluateReleaseTool(server: McpServer, service: Analysis
         "confirmed_vulnerability findings at critical/high severity — any blocks), a Control Gate (a fixed " +
         "set of release-blocking controls — any at FAIL blocks; any PARTIAL/NOT_TESTED/unassessed makes it " +
         "indeterminate instead of approved), and a Coverage Gate (assessment coverage below threshold makes " +
-        "it indeterminate, never downgrading an already-blocked result). `blockingControlFailures` and " +
+        "it indeterminate, never downgrading an already-blocked result). An assessment recorded against a " +
+        "profile revision the project has since moved past, or an ACCEPTED_RISK status whose backing " +
+        "RiskAcceptance has since expired or been revoked, is treated as not-yet-verified for this " +
+        "evaluation only (the stored record itself is unchanged) — this affects both the Control Gate and " +
+        "this evaluation's own coverage number, which can therefore differ from a direct get_score call on " +
+        "the same project. `blockingControlFailures` and " +
         "`blockingControlsNotVerified` are arrays of controlIds — the release-blocking controls that are " +
         "currently FAILing / not yet verified (PARTIAL, NOT_TESTED, or never assessed), respectively — so " +
         "callers can see exactly which controls drove the Control Gate's contribution to `result`. " +
