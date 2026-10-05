@@ -43,7 +43,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach } from "vitest";
 import { join } from "node:path";
-import type { AssessmentBatch, AssessmentRun, ControlAssessment, Evidence, Finding, Project } from "../../src/core/repository.js";
+import type { AssessmentBatch, AssessmentRun, ControlAssessment, Evidence, Finding, Project, RiskAcceptance } from "../../src/core/repository.js";
 import type { ProjectReport } from "../../src/core/report-builder.js";
 import type { AssessmentPlan } from "../../src/core/plan-expander.js";
 
@@ -199,6 +199,29 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
     };
     await repo.saveRun(run);
     expect(await repo.getRun("PRJ-1", "RUN-1")).toEqual(run);
+  });
+
+  it("getRiskAcceptances returns [] for a project with no risk-acceptances.json yet", async () => {
+    expect(await repo.getRiskAcceptances("PRJ-1")).toEqual([]);
+  });
+
+  it("saveRiskAcceptance appends a new riskAcceptanceId but replaces an existing one (upsert)", async () => {
+    const first: RiskAcceptance = {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: "IAM-AUTH-005", findingIds: [],
+      reason: "compensating control in place", compensatingControls: ["NET-ADMIN-003"],
+      approvedBy: "csi-mcp-agent", approvedAt: "2026-09-30T00:00:00.000Z", expiresAt: "2026-12-30T00:00:00.000Z",
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    };
+    await repo.saveRiskAcceptance("PRJ-1", first);
+    const revoked = { ...first, status: "revoked" as const, revokedAt: "2026-10-01T00:00:00.000Z", revokedReason: "no longer needed" };
+    await repo.saveRiskAcceptance("PRJ-1", revoked);
+    const all = await repo.getRiskAcceptances("PRJ-1");
+    expect(all).toHaveLength(1);
+    expect(all[0]).toEqual(revoked);
+
+    const other: RiskAcceptance = { ...first, riskAcceptanceId: "RA-002", controlId: "DATA-ENC-002" };
+    await repo.saveRiskAcceptance("PRJ-1", other);
+    expect(await repo.getRiskAcceptances("PRJ-1")).toHaveLength(2);
   });
 });
 

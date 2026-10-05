@@ -89,6 +89,22 @@ export interface Finding {
   [key: string]: unknown;
 }
 
+export interface RiskAcceptance {
+  riskAcceptanceId: string;
+  projectId: string;
+  controlId: string;
+  findingIds: string[];
+  reason: string;
+  compensatingControls: string[];
+  approvedBy: string;
+  approvedAt: string;
+  expiresAt: string;
+  reviewDate: string | null;
+  status: "active" | "expired" | "revoked";
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
 export interface AssessmentRun {
   runId: string;
   projectId: string;
@@ -121,6 +137,7 @@ export interface SecurityRepository {
   getControlAssessments(projectId: string, runId?: string): Promise<ControlAssessment[]>;
   getFindings(projectId: string): Promise<Finding[]>;
   getEvidence(projectId: string): Promise<Evidence[]>;
+  getRiskAcceptances(projectId: string): Promise<RiskAcceptance[]>;
   getRun(projectId: string, runId: string): Promise<AssessmentRun>;
   saveRun(run: AssessmentRun): Promise<void>;
   saveBatch(batch: AssessmentBatch): Promise<void>;
@@ -130,6 +147,7 @@ export interface SecurityRepository {
   saveControlAssessment(assessment: ControlAssessment): Promise<void>;
   saveFinding(projectId: string, finding: Finding): Promise<void>;
   saveEvidence(projectId: string, evidence: Evidence): Promise<void>;
+  saveRiskAcceptance(projectId: string, ra: RiskAcceptance): Promise<void>;
 }
 
 function assertSafeIdSegment(id: string, label: string): void {
@@ -272,5 +290,20 @@ export class JsonRepository implements SecurityRepository {
     const existing = existsSync(path) ? loadJson<Evidence[]>(path) : [];
     existing.push(evidence);
     writeJsonAtomic(path, existing);
+  }
+
+  async getRiskAcceptances(projectId: string): Promise<RiskAcceptance[]> {
+    assertSafeIdSegment(projectId, "projectId");
+    const path = join(this.dataDir, "projects", projectId, "risk-acceptances.json");
+    return existsSync(path) ? loadJson<RiskAcceptance[]>(path) : [];
+  }
+
+  async saveRiskAcceptance(projectId: string, ra: RiskAcceptance): Promise<void> {
+    assertSafeIdSegment(projectId, "projectId");
+    const path = join(this.dataDir, "projects", projectId, "risk-acceptances.json");
+    const existing = existsSync(path) ? loadJson<RiskAcceptance[]>(path) : [];
+    const next = existing.filter((r) => r.riskAcceptanceId !== ra.riskAcceptanceId);
+    next.push(ra);
+    writeJsonAtomic(path, next);
   }
 }

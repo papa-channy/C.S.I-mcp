@@ -14,8 +14,13 @@
     "approvedAt": { "type": "string", "format": "date-time" },
     "expiresAt": { "type": "string", "format": "date-time" },
     "reviewDate": { "type": ["string", "null"], "format": "date-time" },
-    "status": { "type": "string", "enum": ["active", "expired", "revoked"] }
+    "status": { "type": "string", "enum": ["active", "expired", "revoked"] },
+    "revokedAt": { "type": ["string", "null"], "format": "date-time" },
+    "revokedReason": { "type": ["string", "null"], "minLength": 1 }
   },
-  "required": ["riskAcceptanceId", "projectId", "controlId", "reason", "approvedBy", "approvedAt", "expiresAt", "status"],
+  "required": [
+    "riskAcceptanceId", "projectId", "controlId", "reason", "approvedBy", "approvedAt", "expiresAt",
+    "status", "revokedAt", "revokedReason"
+  ],
   "additionalProperties": false
 }

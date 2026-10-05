@@ -8,6 +8,7 @@ import { ProjectService } from "../service/project-service.js";
 import { AssessmentService } from "../service/assessment-service.js";
 import { AnalysisService } from "../service/analysis-service.js";
 import { ReportService } from "../service/report-service.js";
+import { RiskAcceptanceService } from "../service/risk-acceptance-service.js";
 import { registerCreateProjectTool } from "./tools/create-project.js";
 import { registerGetProjectTool } from "./tools/get-project.js";
 import { registerUpdateProjectProfileTool } from "./tools/update-project-profile.js";
@@ -19,6 +20,8 @@ import { registerListFindingsTool } from "./tools/list-findings.js";
 import { registerGetScoreTool } from "./tools/get-score.js";
 import { registerEvaluateReleaseTool } from "./tools/evaluate-release.js";
 import { registerGenerateReportTool } from "./tools/generate-report.js";
+import { registerRecordRiskAcceptanceTool } from "./tools/record-risk-acceptance.js";
+import { registerRevokeRiskAcceptanceTool } from "./tools/revoke-risk-acceptance.js";
 
 export function buildServer(dataDir = "data"): McpServer {
   const repository = new JsonRepository(dataDir);
@@ -26,6 +29,7 @@ export function buildServer(dataDir = "data"): McpServer {
   const assessmentService = new AssessmentService(repository);
   const analysisService = new AnalysisService(repository);
   const reportService = new ReportService(repository);
+  const riskAcceptanceService = new RiskAcceptanceService(repository);
 
   const server = new McpServer({ name: "csi-mcp", version: "0.1.0" });
 
@@ -40,6 +44,8 @@ export function buildServer(dataDir = "data"): McpServer {
   registerGetScoreTool(server, analysisService);
   registerEvaluateReleaseTool(server, analysisService);
   registerGenerateReportTool(server, reportService);
+  registerRecordRiskAcceptanceTool(server, riskAcceptanceService);
+  registerRevokeRiskAcceptanceTool(server, riskAcceptanceService);
 
   return server;
 }

@@ -13,6 +13,8 @@ describe("risk-acceptance-schema", () => {
     approvedAt: "2026-09-16T05:00:00Z",
     expiresAt: "2026-12-16T05:00:00Z",
     status: "active",
+    revokedAt: null,
+    revokedReason: null,
   };
 
   it("accepts a well-formed risk acceptance with an expiration date", () => {
@@ -23,6 +25,12 @@ describe("risk-acceptance-schema", () => {
   it("rejects a risk acceptance with no expiresAt", () => {
     const validate = compileSchemaFromFile("data/schemas/risk-acceptance-schema.json");
     const { expiresAt, ...rest } = valid;
+    expect(validate(rest)).toBe(false);
+  });
+
+  it("rejects a risk acceptance missing revokedAt", () => {
+    const validate = compileSchemaFromFile("data/schemas/risk-acceptance-schema.json");
+    const { revokedAt, ...rest } = valid;
     expect(validate(rest)).toBe(false);
   });
 });

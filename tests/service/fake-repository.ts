@@ -1,6 +1,6 @@
 import type {
   AssessmentBatch, AssessmentRun, Control, ControlAssessment, Evidence, Finding, Project,
-  ReleaseGateData, SecurityRepository, Threat,
+  ReleaseGateData, SecurityRepository, Threat, RiskAcceptance,
 } from "../../src/core/repository.js";
 import type { AssessmentPlan } from "../../src/core/plan-expander.js";
 import type { CriticalityFormula } from "../../src/core/criticality.js";
@@ -19,6 +19,7 @@ export class FakeRepository implements SecurityRepository {
   assessments = new Map<string, ControlAssessment[]>();
   findings = new Map<string, Finding[]>();
   evidence = new Map<string, Evidence[]>();
+  riskAcceptances = new Map<string, RiskAcceptance[]>();
   runs = new Map<string, AssessmentRun>();
   batches = new Map<string, AssessmentBatch>();
   reports = new Map<string, ProjectReport>();
@@ -101,5 +102,14 @@ export class FakeRepository implements SecurityRepository {
     const list = this.evidence.get(projectId) ?? [];
     list.push(evidence);
     this.evidence.set(projectId, list);
+  }
+  async getRiskAcceptances(projectId: string): Promise<RiskAcceptance[]> {
+    return this.riskAcceptances.get(projectId) ?? [];
+  }
+  async saveRiskAcceptance(projectId: string, ra: RiskAcceptance): Promise<void> {
+    const list = this.riskAcceptances.get(projectId) ?? [];
+    const next = list.filter((r) => r.riskAcceptanceId !== ra.riskAcceptanceId);
+    next.push(ra);
+    this.riskAcceptances.set(projectId, next);
   }
 }

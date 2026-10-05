@@ -137,6 +137,7 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
     getControlAssessments: projectRepo.getControlAssessments.bind(projectRepo),
     getFindings: projectRepo.getFindings.bind(projectRepo),
     getEvidence: projectRepo.getEvidence.bind(projectRepo),
+    getRiskAcceptances: projectRepo.getRiskAcceptances.bind(projectRepo),
     getRun: projectRepo.getRun.bind(projectRepo),
     saveRun: projectRepo.saveRun.bind(projectRepo),
     saveBatch: projectRepo.saveBatch.bind(projectRepo),
@@ -146,5 +147,6 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
     saveControlAssessment: projectRepo.saveControlAssessment.bind(projectRepo),
     saveFinding: projectRepo.saveFinding.bind(projectRepo),
     saveEvidence: projectRepo.saveEvidence.bind(projectRepo),
+    saveRiskAcceptance: projectRepo.saveRiskAcceptance.bind(projectRepo),
   };
 }
