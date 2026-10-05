@@ -227,9 +227,10 @@ export class JsonRepository implements SecurityRepository {
   }
 
   async getControlAssessments(projectId: string, _runId?: string): Promise<ControlAssessment[]> {
-    // ControlAssessment (control-assessment-schema.json) carries no runId field, so per-run filtering isn't
-    // derivable from the assessment record alone — this returns the full project set regardless of runId.
-    // Per-run linkage is a later spec's (the MCP/agent layer's) concern, not this Core Engine repository's.
+    // ControlAssessment now carries a runId field (added for staleness tracking — see
+    // docs/superpowers/specs/2026-10-05-assessment-trust-integrity-design.md), but no caller currently
+    // needs per-run filtering, so this still returns the full project set regardless of runId. The
+    // parameter is kept (and intentionally unused) so the signature is ready when a caller needs it.
     assertSafeIdSegment(projectId, "projectId");
     const path = join(this.dataDir, "projects", projectId, "assessments.json");
     return existsSync(path) ? loadJson<ControlAssessment[]>(path) : [];

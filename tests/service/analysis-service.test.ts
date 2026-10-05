@@ -206,3 +206,46 @@ describe("AnalysisService.evaluateRelease — Coverage Gate uses the same transl
     expect(standalone.coverage.coveragePercent).toBe(100); // unaffected: getScore reads raw assessments
   });
 });
+
+describe("AnalysisService.evaluateRelease — staleness drives the verdict, not just the numbers", () => {
+  it("all 8 blocking controls fresh and PASS, but enough non-blocking controls stale to drop translated coverage below the approval threshold: result is indeterminate, not approved", async () => {
+    const repo = await makeProjectRepo(2); // project at revision 2
+    const blockingControls = [...RELEASE_BLOCKING_CONTROLS];
+    repo.controls = [
+      ...blockingControls.map((id) => blockingControl(id)),
+      ...["NB-001", "NB-002", "NB-003", "NB-004"].map((id) => blockingControl(id)),
+    ];
+    for (const id of blockingControls) {
+      await repo.saveControlAssessment(passAssessment(id, { assessmentId: `A-${id}`, profileRevision: 2 })); // fresh
+    }
+    for (const id of ["NB-001", "NB-002", "NB-003", "NB-004"]) {
+      await repo.saveControlAssessment(passAssessment(id, { assessmentId: `A-${id}`, profileRevision: 1 })); // stale
+    }
+    const service = new AnalysisService(repo, () => NOW);
+
+    const raw = await service.getScore("PRJ-1");
+    expect(raw.coverage.coveragePercent).toBe(100); // raw view: every control looks assessed
+
+    const released = await service.evaluateRelease("PRJ-1");
+    expect(released.controlCoverage).toBeLessThan(80); // translated view: the 4 stale controls count as NOT_TESTED
+    expect(released.blockingControlsNotVerified).toEqual([]); // every blocking control is fresh and PASS
+    expect(released.result).toBe("indeterminate"); // coverage gate alone drives this, not the control gate
+  });
+
+  it("flipping exactly one blocking control's profileRevision to stale puts it in blockingControlsNotVerified and prevents approval", async () => {
+    const repo = await makeProjectRepo(2); // project at revision 2
+    const blockingControls = [...RELEASE_BLOCKING_CONTROLS];
+    repo.controls = blockingControls.map((id) => blockingControl(id));
+    const staleControlId = blockingControls[0];
+    for (const id of blockingControls) {
+      await repo.saveControlAssessment(
+        passAssessment(id, { assessmentId: `A-${id}`, profileRevision: id === staleControlId ? 1 : 2 })
+      );
+    }
+    const service = new AnalysisService(repo, () => NOW);
+    const result = await service.evaluateRelease("PRJ-1");
+    expect(result.blockingControlsNotVerified).toEqual([staleControlId]);
+    expect(result.result).toBe("indeterminate");
+    expect(result.result).not.toBe("approved");
+  });
+});

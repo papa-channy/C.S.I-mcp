@@ -37,6 +37,22 @@ describe("RiskAcceptanceService.record", () => {
     expect(ra.compensatingControls).toEqual([]);
     expect(ra.reviewDate).toBeNull();
   });
+
+  it("rejects a non-ISO expiresAt instead of silently accepting a value that would never expire", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    await expect(
+      service.record({ projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "90 days" })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects a non-ISO reviewDate", async () => {
+    const repo = new FakeRepository();
+    const service = new RiskAcceptanceService(repo, () => NOW);
+    await expect(
+      service.record({ projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r1", expiresAt: "2026-12-05T00:00:00.000Z", reviewDate: "next quarter" })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
 });
 
 describe("RiskAcceptanceService.revoke", () => {

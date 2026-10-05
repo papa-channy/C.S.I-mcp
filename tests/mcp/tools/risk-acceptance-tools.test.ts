@@ -59,4 +59,13 @@ describe("record_risk_acceptance / revoke_risk_acceptance", () => {
     expect(result.isError).toBe(true);
     expect((result.structuredContent as any).code).toBe("NOT_FOUND");
   });
+
+  it("record_risk_acceptance rejects a non-ISO expiresAt at the schema boundary", async () => {
+    const { client } = await makeConnectedClient();
+    const result = await client.callTool({
+      name: "record_risk_acceptance",
+      arguments: { projectId: "PRJ-1", controlId: "IAM-AUTH-005", reason: "r", expiresAt: "90 days" },
+    });
+    expect(result.isError).toBeTruthy();
+  });
 });

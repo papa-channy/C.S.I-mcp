@@ -38,7 +38,11 @@ export function registerUpdateProjectProfileTool(server: McpServer, service: Pro
       title: "Update Project Profile",
       description:
         "Patch a project's security profile. A field left out of this call is untouched; " +
-        "sending [] for components/identities/dataClasses clears it to KNOWN-NONE.",
+        "sending [] for components/identities/dataClasses clears it to KNOWN-NONE. Every call bumps " +
+        "the project's profileRevision, even a no-op or repeated patch — and every existing control " +
+        "assessment recorded under a prior revision is treated as NOT_TESTED by evaluate_release and " +
+        "generate_report from that point on. A new assessment run is required after this call before " +
+        "release evaluation can show full coverage again.",
       inputSchema: updateProjectProfileInputShape,
     },
     async ({ projectId, ...patch }) => {

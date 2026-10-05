@@ -26,6 +26,12 @@ export class RiskAcceptanceService {
   ) {}
 
   async record(input: RecordRiskAcceptanceInput): Promise<RiskAcceptance> {
+    if (Number.isNaN(Date.parse(input.expiresAt))) {
+      throw new ServiceError("VALIDATION_ERROR", `expiresAt "${input.expiresAt}" is not a valid date-time`, { expiresAt: input.expiresAt });
+    }
+    if (input.reviewDate != null && Number.isNaN(Date.parse(input.reviewDate))) {
+      throw new ServiceError("VALIDATION_ERROR", `reviewDate "${input.reviewDate}" is not a valid date-time`, { reviewDate: input.reviewDate });
+    }
     const existing = await this.repository.getRiskAcceptances(input.projectId);
     const riskAcceptanceId = nextSequentialId("RA", existing.length);
     const ra: RiskAcceptance = {

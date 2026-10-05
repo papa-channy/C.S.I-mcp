@@ -9,8 +9,8 @@ export const recordRiskAcceptanceInputShape = {
   findingIds: z.array(z.string().min(1)).optional(),
   reason: z.string().min(1),
   compensatingControls: z.array(z.string().min(1)).optional(),
-  expiresAt: z.string().min(1),
-  reviewDate: z.string().optional(),
+  expiresAt: z.string().datetime({ offset: true }),
+  reviewDate: z.string().datetime({ offset: true }).optional(),
 };
 
 export function registerRecordRiskAcceptanceTool(server: McpServer, service: RiskAcceptanceService): void {
