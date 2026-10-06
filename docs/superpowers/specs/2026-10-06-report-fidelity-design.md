@@ -1,0 +1,488 @@
+# Report Fidelity — Design
+
+## 1. Context and Goal
+
+The `assessment-trust-integrity` branch (merged 2026-10-05) made the
+detection/judgment engine itself trustworthy: `ControlAssessment` records
+now carry `runId`/`profileRevision`, `ACCEPTED_RISK` is validated against a
+real `RiskAcceptance` entity (existence, scope, expiry, revocation),
+`N/A` is cross-checked against the applicability engine's own verdict, and
+`AnalysisService.evaluateRelease`/`ReportService.generate` both translate
+stale or no-longer-backed assessments to `NOT_TESTED` through one shared
+function before computing score and release evaluation — so the Coverage
+Gate and Control Gate can no longer silently disagree.
+
+To validate that work, all 8 real open-source validation projects
+(Vaultwarden, Documenso, Outline, Formbricks, Chatwoot ×3, Listmonk) were
+re-assessed against their current profiles and fresh `ProjectReport`s were
+generated and reviewed. The engine behaves as designed: `Outline` correctly
+lands on `"indeterminate"` (66.7% coverage, 3 unverified blocking controls)
+rather than the pre-fix `"approved"`-at-low-coverage bug; `Chatwoot v2`
+correctly `"blocked"`s on a release-blocking Control Gate `FAIL`
+(`IAM-AUTH-005`) even with zero confirmed critical/high findings — the
+exact scenario the Control Gate was built for; a blind pinned-commit
+re-assessment of Chatwoot (`Chatwoot-v3`) surfaced a real critical finding
+(an unauthenticated public API attachment-validation bypass) that three
+earlier passes had missed, without reintroducing a previously-corrected
+false positive.
+
+But reviewing those 8 reports surfaced a different, real gap: **the engine
+computes rich judgment — finding type, severity, linked controls, attack
+scenario, exploitability evidence, which gate a finding affects, whether an
+assessment is stale — and almost none of it survives into the persisted
+`ProjectReport` artifact.** `prioritizedFindings` entries carry exactly four
+fields (`findingId`, `priorityIndex`, `criticalityIndex`, `title`); a reader
+of the JSON alone cannot tell a `confirmed_vulnerability` from a
+`control_gap` finding, cannot see which control a finding is attached to,
+and cannot see why. Two numeric fields are named identically across two
+different meanings (`score.ts`'s per-domain `highFindings`, counting every
+active finding by severity regardless of type, vs.
+`release-evaluator.ts`'s `highFindings`, counting only `confirmed_vulnerability`-type
+findings toward the gate) — one report showed domain-level `highFindings: 6`
+alongside `releaseEvaluation.highFindings: 0` for the same assessment, with
+nothing in the artifact explaining the difference. No report records what
+code was actually scanned: `Project`/`AssessmentRun` have no repository or
+commit field anywhere, so a `ProjectReport` detached from this session's
+chat history cannot prove which commit of `chatwoot/chatwoot` it describes.
+`unblockedCriticalAttackPaths` is always `0` — not because attack paths are
+rare, but because `AnalysisService`/`ReportService` both hardcode
+`attackPaths: []` when calling `evaluateRelease`; no attack-path model
+exists anywhere in the codebase. `coveragePercent` and similar fields are
+unrounded floats (`57.49999999999999`).
+
+**Goal:** make `ProjectReport` a self-contained, externally-legible
+artifact — one that preserves the engine's actual judgment (what was
+found, how certain, why it matters, what it affects) and its own
+provenance (what code, what profile, what engine version produced this),
+without inventing new engine capability the system doesn't actually have.
+This is a **reporting-fidelity** fix, not a detection-quality fix — the
+engine's judgment is treated as already correct; the job is to stop
+discarding it on the way into the persisted artifact.
+
+## 2. Current State (for contrast)
+
+`src/core/report-builder.ts`'s `ProjectReport`:
+
+```ts
+export interface ProjectReport {
+  reportId: string;
+  projectId: string;
+  assessmentRunId: string;
+  catalogVersion: string;
+  profileRevision: number;
+  criticalityFormula: { id: string; version: string };
+  generatedAt: string;
+  score: ScoreForReport;
+  prioritizedFindings: PrioritizedFindingInput[];
+  releaseEvaluation: ReleaseEvaluationForReport;
+  summary: string;
+}
+```
+
+`PrioritizedFindingInput` is `{ findingId, priorityIndex, criticalityIndex,
+title }` — nothing else. The real `Finding` entity (`src/core/repository.ts`)
+already carries `type`, `controlIds`, `status`, `severity`,
+`exploitabilityEvidence`, and (via an index signature) `attackScenario` —
+none of it reaches the report.
+
+`src/core/score.ts`'s `DomainScore` and `src/core/release-evaluator.ts`'s
+`ReleaseEvaluation` both declare a field named `criticalFindings`/
+`highFindings`, with different definitions:
+
+```ts
+// score.ts — countActiveFindings(findings, domainControlIds, "critical"|"high")
+// counts every active (open/in_progress) finding by severity label,
+// independent of Finding.type.
+criticalFindings: number;
+highFindings: number;
+
+// release-evaluator.ts — counts only active findings whose
+// type === "confirmed_vulnerability", the subset that actually drives
+// the Finding Gate threshold check.
+const criticalFindings = activeCritical.length;
+const highFindings = activeHigh.length;
+```
+
+Neither `Project` nor `AssessmentRun` (`src/core/repository.ts`) has a
+repository/commit field; the only place a commit ever appears is as free
+text embedded in a human-written `Project.name` string (e.g. `"Chatwoot
+(chatwoot/chatwoot) — blind pinned-commit re-assessment (097155a,
+2026-10-03)"`) — never structured data.
+
+`AnalysisService.evaluateRelease` and `ReportService.generate` both call
+core `evaluateRelease` with `attackPaths: []` hardcoded — there is no
+`AttackPath` entity, repository method, or MCP tool anywhere in `src/`.
+`unblockedCriticalAttackPaths` is therefore structurally always `0`.
+
+`incidentResponseVerified`/`backupRestoreVerified`
+(`ReleaseEvaluationForReport`) are booleans computed as
+`assessmentByControl.get(<control>) === "PASS"`. Both of their underlying
+controls (`GOV-IR-001`, `OPS-BACKUP-TEST-001`) are also members of
+`RELEASE_BLOCKING_CONTROLS`, so the same information is *nearly* present
+in `blockingControlFailures`/`blockingControlsNotVerified` — except an
+`ACCEPTED_RISK`-status blocking control contributes nothing to either
+blocking array (by design — see the Control Gate loop in
+`release-evaluator.ts`) while still making the boolean `false`. The two
+views are not interchangeable the way they look.
+
+`score.ts`'s `coveragePercent` and related percentages are plain
+`number` division results with no rounding (`(assessedControls /
+applicableControls) * 100`), copied verbatim into the report.
+
+## 3. Architecture
+
+### 3.1 `findingSnapshots[]`: the full, self-contained finding record
+
+`ProjectReport` gains a new field:
+
+```ts
+export interface FindingSnapshot {
+  findingId: string;
+  title: string;
+  type: Finding["type"];
+  severity: Finding["severity"];
+  controlIds: string[];
+  status: Finding["status"];
+  priorityIndex: number;
+  criticalityIndex: number;
+  attackScenario?: string;
+  exploitabilityEvidence?: string;
+}
+```
+
+Every field here already exists on the real `Finding` record at the
+project's current `findings.json` — `ReportBuilder` copies, it does not
+compute or infer anything new. Two fields considered and explicitly
+**excluded**: `evidenceRefs` (no `Finding` field references `Evidence` —
+only `ControlAssessment.evidenceIds` does, and a `Finding` can span
+multiple `controlIds`/assessments, so there is no single unambiguous
+evidence set to point at without inventing a new linkage) and
+`dispositionReason` (no write path in this codebase ever records *why* a
+`Finding.status` changed to `resolved`/`false_positive` — no tool exists to
+transition a finding's status at all yet). Adding either would be new
+engine capability, not report fidelity; both are explicitly out of scope
+(§7).
+
+`findingSnapshots` contains **every** `Finding` for the report's project —
+`open`, `in_progress`, `resolved`, `accepted`, and `false_positive` alike —
+because a `ProjectReport` is an immutable artifact: it should let a later
+reader reconstruct "what did this assessment claim at the time," including
+findings since closed, not just today's open list. `prioritizedFindings`
+is unchanged and keeps its existing actionable-only filter (`status ===
+"open" || status === "in_progress"`) — it remains the executive/action
+index; `findingSnapshots` is the complete evidentiary record.
+
+**Invariant:** every `prioritizedFindings[i].findingId` must appear in
+`findingSnapshots` (`prioritizedFindings` is always a subset of
+`findingSnapshots` by `findingId`, never a disjoint list) — and no entry in
+`findingSnapshots` whose `status` fails the actionable predicate may appear
+in `prioritizedFindings`.
+
+### 3.2 Naming: `criticalSeverityFindings`/`highSeverityFindings` vs. `confirmedCriticalVulnerabilities`/`confirmedHighVulnerabilities`
+
+This project is pre-commercialization, single-user, local-stdio (no remote
+consumers with a deployed contract to preserve), and the `score-schema.json`
+/ `release-evaluation-schema.json` standalone schemas that mirror these
+fields are validated only in tests — nothing in `src/` calls
+`compileSchemaFromFile` against either at runtime. Given that, this spec
+renames **at the source**, not just inside `ReportBuilder`'s mapping step,
+so the same number has the same name wherever it appears (`get_score`,
+`evaluate_release`, and `ProjectReport` alike) rather than creating a
+second, differently-named alias of the same underlying field for the
+report only.
+
+- `src/core/score.ts`'s `DomainScore`: `criticalFindings` →
+  `criticalSeverityFindings`, `highFindings` → `highSeverityFindings`.
+  Definition unchanged (`countActiveFindings(..., "critical"|"high")`,
+  independent of `Finding.type`) — only the name changes, to say what is
+  actually being counted (severity label on any active finding).
+- `src/core/release-evaluator.ts`'s `ReleaseEvaluation`: `criticalFindings`
+  → `confirmedCriticalVulnerabilities`, `highFindings` →
+  `confirmedHighVulnerabilities`. Definition unchanged (active findings
+  with `type === "confirmed_vulnerability"`, by severity) — the name now
+  says what is counted (confirmed vulnerabilities) rather than how the
+  count is consumed downstream (a `blocking*` name was considered and
+  rejected: a single high-severity confirmed vulnerability doesn't always
+  block release by itself — `highFindingsSatisfied`'s threshold depends on
+  `securityLevel` — so "blocking" overclaims what the field itself
+  guarantees).
+- `data/schemas/score-schema.json`, `data/schemas/release-evaluation-schema.json`,
+  `data/schemas/project-report-schema.json`: all three renamed to match,
+  consistently.
+
+**Invariant:** the rename is not cosmetic — each renamed field's test
+fixture must assert the specific predicate its new name claims (e.g. a
+`criticalSeverityFindings` test includes an active `hardening`-type
+finding at `severity: critical` and asserts it counts; a
+`confirmedCriticalVulnerabilities` test includes the same finding and
+asserts it does **not** count, only a `confirmed_vulnerability`-type one
+does).
+
+### 3.3 `target` and `profileSnapshot`: provenance lives on `AssessmentRun`, not the report
+
+Two new fields are added to `AssessmentRun`, each captured **by value** at
+`start_assessment_run` time — not re-read from live `Project` storage when
+a report is later generated, since `Project.profile` and
+`Project.profileRevision` can both have moved on by then (this is exactly
+the staleness scenario `assessment-trust-integrity` exists to catch; a
+report must describe the run it came from, not whatever the project
+happens to look like right now):
+
+```ts
+export interface Target {
+  repository: string;
+  commitSha: string | null;
+  branchOrTag: string | null;
+  dirty: boolean | null;
+}
+
+export interface AssessmentRun {
+  // ...existing fields...
+  target: Target | null;
+  profileSnapshot: ProjectProfile;
+}
+```
+
+- `target` is `Target | null` as a whole — `null` means "this run did not
+  declare target provenance" (the common case today; every run prior to
+  this change, and every run whose caller omits the new input, has `target:
+  null`). When non-`null`, `repository` is required; `commitSha`,
+  `branchOrTag`, and `dirty` are each independently `required-but-nullable`
+  — matching this project's established convention
+  (`RiskAcceptance.reviewDate`, `AssessmentRun.startedAt`/`completedAt`)
+  of always-present-but-nullable over optional-and-undefined.
+  `commitSha` is the authoritative identity when present; `branchOrTag` is
+  reference metadata only (a branch can move; a commit SHA does not).
+  When a commit is known, the **full** SHA is stored, not an abbreviated
+  short form.
+- `start_assessment_run`'s input gains an optional `target` parameter
+  matching the `Target` shape (minus `repository`'s requiredness — the
+  whole parameter is optional; omitting it stores `target: null`).
+- **This is caller-asserted provenance, not server-verified.** Nothing in
+  this spec independently confirms that the declared `commitSha` is what
+  was actually scanned — `start_assessment_run`'s caller self-reports it.
+  The schema description and any report-facing documentation must say so
+  explicitly, so a reader doesn't mistake "the assessment agent declared
+  this commit" for "the server verified this commit." Actually verifying
+  provenance (e.g. against a live git checkout) is out of scope (§7).
+- `profileSnapshot: ProjectProfile` is a **deep copy** of `Project.profile`
+  taken at the moment `startAssessmentRun` runs (never a shared object
+  reference — later mutation of the live `Project.profile` must not alter
+  an already-created run's snapshot). Paired with the already-existing
+  `AssessmentRun.profileRevision` (also captured at the same moment), a
+  report reader can see not just *that* the project was at revision 2, but
+  *what* revision 2's profile actually was, without needing live access to
+  `data/projects/<id>/project.json`.
+
+`ReportBuilder` does not construct or infer provenance — it copies
+`run.target`, `run.profileSnapshot`, and the already-existing
+`run.profileRevision` verbatim onto `ProjectReport`. `ProjectReport` gains:
+
+```ts
+target: Target | null;
+profileSnapshot: ProjectProfile;
+```
+
+(`profileRevision` already exists on `ProjectReport` and is unchanged —
+it's now explicitly documented as sourced from `AssessmentRun.profileRevision`,
+not a fresh `Project` read, matching what `ReportService.generate` already
+does today.)
+
+**Invariant:** `ProjectReport.profileRevision === AssessmentRun.profileRevision`,
+`ProjectReport.profileSnapshot` deep-equals `AssessmentRun.profileSnapshot`,
+and `ProjectReport.target` deep-equals `AssessmentRun.target`, for the run
+named by `ProjectReport.assessmentRunId` — `ReportBuilder` must not read
+current `Project` state to populate any of the three.
+
+### 3.4 `unblockedCriticalAttackPaths`: removed from the report, not from core
+
+No change to `src/core/release-evaluator.ts`, its exported
+`ReleaseEvaluation` interface, or the `evaluate_release` MCP tool's output
+— attack-path modeling is a real, separate feature this spec does not
+build (§7), and the field's live behavior (always `0`, because
+`attackPaths: []` is hardcoded at both call sites) is unchanged outside
+the report.
+
+`ReportBuilder`'s `ReleaseEvaluationForReport` (the report-only mirror
+type) drops `unblockedCriticalAttackPaths` when mapping from the full
+`ReleaseEvaluation` — a field that can only ever read `0`, persisted
+permanently into an immutable artifact, communicates false precision.
+Removing it from the artifact is less misleading than keeping it.
+
+### 3.5 `incidentResponseVerified`/`backupRestoreVerified`: removed from the report
+
+Not merely documented as derived — removed from `ProjectReport` (and its
+mirror `ReleaseEvaluationForReport`) entirely. The brainstorming review
+surfaced a real discrepancy, not just redundancy: a `RELEASE_BLOCKING_CONTROLS`
+member at `status: "ACCEPTED_RISK"` contributes nothing to
+`blockingControlFailures`/`blockingControlsNotVerified` by design (Control
+Gate loop, `release-evaluator.ts`), yet `incidentResponseVerified`/
+`backupRestoreVerified` — checking `=== "PASS"` only — would read `false`
+in that same case. A boolean that silently collapses `FAIL`,
+`NOT_TESTED`, `PARTIAL`, `undefined`, *and* `ACCEPTED_RISK` into the same
+`false` is not a faithful summary of
+`blockingControlFailures`/`blockingControlsNotVerified`; keeping both
+around invites a reader to treat them as interchangeable when they aren't.
+`blockingControlFailures`/`blockingControlsNotVerified` (unchanged,
+already present) are strictly more informative and remain the only
+source of truth in the report.
+
+No change to core `release-evaluator.ts`'s `ReleaseEvaluation` interface —
+the two booleans stay there; cleaning up that API is a separate, future,
+non-report concern (§7).
+
+### 3.6 Rounding: report-serialization boundary only
+
+A new helper, `src/core/report-builder.ts` (or a small shared formatting
+module if it grows):
+
+```ts
+export function roundReportNumber(value: number): number {
+  const rounded = Math.round((value + Number.EPSILON) * 100) / 100;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+```
+
+Applied **only** when `ReportBuilder` copies numeric fields from the
+engine's `Score`/`ReleaseEvaluation` objects into `ProjectReport` — never
+to the `Score`/`ReleaseEvaluation` objects themselves before or during
+gate-threshold comparisons (`coverageOk = score.coverage.coveragePercent
+>= MIN_COVERAGE_FOR_APPROVAL_PERCENT` in `release-evaluator.ts` must keep
+comparing full-precision values; rounding first could flip a borderline
+case, e.g. `79.996` rounding to `80.0` before the `>= 80` check, silently
+changing a `blocked`/`indeterminate` result to `approved`). Precision
+policy: percentage fields (`coveragePercent`, `controlCoverage`, domain
+`coveragePercent`) and `overallScore`/domain `score` → 2 decimal places;
+integer counts (`applicableControls`, `assessedControls`, `passCount`,
+etc.) → unchanged, already integers. No raw information is lost by
+rounding the percentage alone — `Score.coverage` already carries
+`applicableControls`/`assessedControls` as separate integer fields
+alongside `coveragePercent`, so a reader can always recover the exact
+fraction.
+
+### 3.7 `reportSchemaVersion` and `engineVersion`
+
+Two more new top-level `ProjectReport` fields, both addressing the same
+problem `target`/`profileSnapshot` partly solve: even an identical
+`catalogVersion` can produce different results across different code —
+three of the eight re-assessed projects are different Chatwoot runs
+(`v1`/`v2`/`v3`) against the same catalog version, each finding a
+different set of issues, for reasons a reader can't attribute without
+knowing which engine code ran:
+
+- `engineVersion: string` — this package's own `version` field
+  (`package.json`, currently `"0.8.0"`), read once at report-generation
+  time in `ReportService.generate`.
+- `reportSchemaVersion: string` — a version string for the `ProjectReport`
+  shape itself, starting at `"2.0.0"` for this change (distinct from
+  `engineVersion`: the report *shape* can change independently of the
+  engine's judgment logic). Old reports already on disk (generated by the
+  previous `ProjectReport` shape, with no `reportSchemaVersion` field at
+  all) are **not** migrated and are **not** required to validate against
+  the new `project-report-schema.json` — they remain as-is, legacy
+  artifacts describing what they described when generated, consistent
+  with the project's existing immutable-report philosophy (a
+  `ProjectReport` is never rewritten after creation). Only newly-generated
+  reports carry `reportSchemaVersion: "2.0.0"` and the new fields.
+
+## 4. Interface Changes
+
+- `src/core/repository.ts`:
+  - New `Target` interface: `{ repository: string; commitSha: string | null; branchOrTag: string | null; dirty: boolean | null }`.
+  - `AssessmentRun` gains `target: Target | null` and `profileSnapshot: ProjectProfile` (both required fields, captured at `startAssessmentRun` time).
+- `src/service/assessment-service.ts`:
+  - `StartAssessmentRunResult`/`startAssessmentRun` input gains an optional `target` parameter (shape: `Target` minus requiredness); the service deep-copies `project.profile` into the new run's `profileSnapshot` and stores the declared (or `null`) `target`.
+- `src/mcp/tools/start-assessment-run.ts`: input schema gains the optional `target` object (zod).
+- `src/core/score.ts`: `DomainScore.criticalFindings`/`highFindings` renamed to `criticalSeverityFindings`/`highSeverityFindings`. No logic change.
+- `src/core/release-evaluator.ts`: `ReleaseEvaluation.criticalFindings`/`highFindings` renamed to `confirmedCriticalVulnerabilities`/`confirmedHighVulnerabilities`. No logic change. `unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified` **remain** on this core interface unchanged (§3.4, §3.5 only remove them from the report).
+- `src/core/report-builder.ts`:
+  - `PrioritizedFindingInput` unchanged.
+  - New `FindingSnapshot` interface (§3.1) and a `buildFindingSnapshots` step alongside the existing `sortPrioritizedFindings`.
+  - `ScoreForReport.domainScores` items reflect the §3.2 domain rename.
+  - `ReleaseEvaluationForReport` reflects the §3.2 release rename, and drops `unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified` (§3.4, §3.5).
+  - `ProjectReport` gains `findingSnapshots: FindingSnapshot[]`, `target: Target | null`, `profileSnapshot: ProjectProfile`, `reportSchemaVersion: string`, `engineVersion: string`.
+  - New `roundReportNumber` helper (§3.6), applied to all percentage/score fields during construction.
+  - `buildReport`'s input gains `run: { ...existing, target, profileSnapshot }` and `engineVersion: string` parameters.
+- `src/service/report-service.ts`: `generate` reads `package.json`'s `version` once and passes it through as `engineVersion`; passes `run.target`/`run.profileSnapshot` through to `buildReport`.
+- `data/schemas/score-schema.json`, `data/schemas/release-evaluation-schema.json`, `data/schemas/project-report-schema.json`, `data/schemas/assessment-run-schema.json`: updated to match (new/renamed/removed fields, `additionalProperties: false` preserved throughout).
+- No changes to `get_score`'s standalone behavior, `src/core/score.ts`'s `calculateScore` signature/logic, or `src/core/release-evaluator.ts`'s `evaluateRelease` signature/logic.
+
+## 5. Testing Strategy
+
+- **`findingSnapshots` completeness:** a project with findings across all five `status` values (`open`, `in_progress`, `resolved`, `accepted`, `false_positive`) — assert every one of them appears in `findingSnapshots`, and only the `open`/`in_progress` ones appear in `prioritizedFindings`. Assert the subset invariant (§3.1) directly: every `prioritizedFindings[i].findingId` is present in `findingSnapshots`.
+- **Renamed field semantics (not just names):** for `criticalSeverityFindings`, a fixture with an active `hardening`-type finding at `severity: "critical"` — assert it counts. For `confirmedCriticalVulnerabilities`, the identical fixture — assert it does **not** count (only `confirmed_vulnerability`-type counts). Mirror for the `high` pair. This directly tests the distinction the old shared name obscured.
+- **`target`/`profileSnapshot` snapshot fidelity:** `start_assessment_run` with a declared `target` and a project profile at a given revision; mutate the live `Project.profile` afterward (simulating `update_project_profile`); generate a report from that run and assert `ProjectReport.target`/`profileSnapshot`/`profileRevision` all match the **run's** captured values, not the now-mutated live project. A sibling test omits `target` entirely and asserts `ProjectReport.target === null`.
+- **`profileSnapshot` is a real deep copy:** mutate the object passed as `project.profile` after `startAssessmentRun` returns and assert the stored `AssessmentRun.profileSnapshot` is unaffected (no shared reference).
+- **`unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified` absence:** assert `ProjectReport`/`ReleaseEvaluationForReport` has none of the three keys (schema `additionalProperties: false` plus a direct key-absence assertion), while a sibling test confirms core `evaluateRelease`'s own return value (outside the report path) still has all three, unchanged — proving this is a report-layer-only removal.
+- **Rounding does not affect gate decisions:** a fixture engineered so raw `coveragePercent` is just under 80 (e.g. `79.995...`) — assert the **unrounded** value is what `evaluateRelease`'s `coverageOk` comparison uses (result stays `indeterminate`/`blocked`, not `approved`), while the **report's** `controlCoverage` is the rounded `80.0` (or correctly rounds to a value still `< 80` — whichever the fixture's exact math produces) — the point being gate logic and report display never share a rounding step.
+- **`-0` normalization:** a `roundReportNumber` unit test asserting `roundReportNumber(-0.001)` (or any input that rounds to negative zero) returns `0`, not `-0` (`Object.is` check).
+- **`reportSchemaVersion`/`engineVersion` presence:** a freshly generated report has both fields, `reportSchemaVersion === "2.0.0"` and `engineVersion` matching `package.json`'s current `version`.
+- **Old report compatibility (non-migration):** a fixture file shaped like a pre-existing, on-disk report (no `reportSchemaVersion`, no `findingSnapshots`, old field names) is **not** touched or migrated by anything in this change — assert no code path in this spec's new work reads or rewrites existing `data/projects/*/reports/*.json` files.
+
+## 6. Adoption Log (external review)
+
+Brainstorming round 1 (ChatGPT, same persistent review thread as
+`assessment-trust-integrity`): confirmed `findingSnapshots` should include
+*all* findings (not just actionable) so `ProjectReport` can reconstruct
+what was claimed at assessment time, not just today's open list; confirmed
+Option A (rename at the source, not just in `ReportBuilder`'s mapping)
+given no live schema validation and no external consumer contract yet;
+flagged that `release-evaluator.ts`'s renamed field should name *what is
+counted* (`confirmed*Vulnerabilities`) rather than *how it's used*
+(`blocking*`), since a single high-severity finding doesn't always block
+release by itself; flagged that `target` being caller-asserted, not
+server-verified, must be stated explicitly in schema/docs wording; found a
+real (not just stylistic) problem with keeping
+`incidentResponseVerified`/`backupRestoreVerified` — the `ACCEPTED_RISK`
+case diverges from `blockingControlsNotVerified`, so the two views are not
+actually interchangeable; proposed `reportSchemaVersion`/`engineVersion`/
+`profileSnapshot` as three additions beyond the original six sections,
+reasoning that identical `catalogVersion` across Chatwoot v1/v2/v3 produced
+different results for reasons a report reader can't otherwise attribute.
+
+Brainstorming round 2: confirmed the full synthesis above as final,
+including deliberately excluding `evidenceRefs`/`dispositionReason` from
+`findingSnapshots` (no existing `Finding` data or write path backs either
+— adding them would be new engine capability, not report fidelity);
+settled on `confirmedCriticalVulnerabilities`/`confirmedHighVulnerabilities`
+as the release-level names; confirmed `target`+`profileSnapshot` belong on
+`AssessmentRun`, captured once at run-start, with `ReportBuilder` only
+copying the run's snapshot forward (never re-reading live `Project`
+state); confirmed `incidentResponseVerified`/`backupRestoreVerified`
+should be removed from the report outright, not merely commented, given
+the `ACCEPTED_RISK` divergence; gave a concrete `roundReportNumber`
+implementation including `-0` normalization; gave the exact snapshot/
+finding/renamed-count/old-report-compatibility invariants reproduced in
+§3 and §5 above; explicit final verdict: proceed directly to the
+implementation plan.
+
+## 7. Out of Scope
+
+- **Attack-path modeling.** `unblockedCriticalAttackPaths` is removed from
+  the report (§3.4) but the underlying feature — an `AttackPath` entity,
+  repository methods, an MCP tool to record one, and real (non-empty)
+  input to `evaluateRelease`'s `attackPaths` parameter — is a separate,
+  future feature. Core `release-evaluator.ts` is untouched.
+- **`incidentResponseVerified`/`backupRestoreVerified` core API cleanup.**
+  These remain on `release-evaluator.ts`'s `ReleaseEvaluation` and
+  `evaluate_release`'s live tool output; only `ProjectReport` drops them.
+  Removing or renaming them at the core/tool level is a separate concern.
+- **`evidenceRefs`/`dispositionReason` on findings.** Would require new
+  `Finding` data model fields and (for `dispositionReason`) a new write
+  path to transition finding status with a reason — genuinely new engine
+  capability, not a report-fidelity fix (§3.1).
+- **Server-verified `target` provenance.** `target.commitSha` etc. are
+  caller-asserted only; actually verifying a declared commit against a
+  live checkout (or any other independent confirmation) is not built here
+  (§3.3).
+- **Migrating existing on-disk reports.** Old `ProjectReport` files keep
+  their original shape permanently; `reportSchemaVersion` only appears on,
+  and only applies to, reports generated after this change (§3.7).
+- **RiskAcceptance expiry/revoke/staleness integration-test coverage.**
+  The 8 re-assessed projects' `acceptedRiskCount` is effectively `0` across
+  the board, so this report set is regression evidence (`assessment-trust-integrity`
+  didn't break existing projects) but not validation evidence that the new
+  trust paths work under real exercise — that needs dedicated
+  integration/metamorphic tests, already covered by
+  `assessment-trust-integrity`'s own Testing Strategy, and is not part of
+  this report-fidelity spec.
