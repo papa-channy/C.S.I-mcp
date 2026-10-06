@@ -876,16 +876,6 @@ to:
     ];
 ```
 
-```ts
-    const findings: FindingForReport[] = [
-      { findingId: "F-open", title: "open one", type: "confirmed_vulnerability", controlIds: ["A-001"], status: "open", severity: "high", priority: { index: 1 }, criticality: { index: 5 } },
-      { findingId: "F-progress", title: "in progress one", type: "control_gap", controlIds: ["A-001"], status: "in_progress", severity: "medium", priority: { index: 2 }, criticality: { index: 5 } },
-      { findingId: "F-resolved", title: "resolved one", type: "confirmed_vulnerability", controlIds: ["A-002"], status: "resolved", severity: "critical", priority: { index: 0 }, criticality: { index: 9 } },
-      { findingId: "F-accepted", title: "accepted one", type: "accepted_design", controlIds: ["A-002"], status: "accepted", severity: "low", priority: { index: 0 }, criticality: { index: 9 } },
-      { findingId: "F-fp", title: "false positive", type: "needs_validation", controlIds: ["A-003"], status: "false_positive", severity: "informational", priority: { index: 0 }, criticality: { index: 9 } },
-    ];
-```
-
 Add a new `describe` block with the actual new-behavior tests, after the existing `describe("buildReport", ...)` block closes:
 
 ```ts
