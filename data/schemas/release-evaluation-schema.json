@@ -7,8 +7,8 @@
     "projectId": { "type": "string", "minLength": 1 },
     "gate": { "type": "integer", "minimum": 0, "maximum": 4 },
     "controlCoverage": { "type": "number", "minimum": 0, "maximum": 100 },
-    "criticalFindings": { "type": "integer", "minimum": 0 },
-    "highFindings": { "type": "integer", "minimum": 0 },
+    "confirmedCriticalVulnerabilities": { "type": "integer", "minimum": 0 },
+    "confirmedHighVulnerabilities": { "type": "integer", "minimum": 0 },
     "unblockedCriticalAttackPaths": { "type": "integer", "minimum": 0 },
     "residualRisksAccepted": { "type": "integer", "minimum": 0 },
     "incidentResponseVerified": { "type": "boolean" },
@@ -19,7 +19,7 @@
     "evaluatedAt": { "type": "string", "format": "date-time" }
   },
   "required": [
-    "projectId", "gate", "controlCoverage", "criticalFindings", "highFindings",
+    "projectId", "gate", "controlCoverage", "confirmedCriticalVulnerabilities", "confirmedHighVulnerabilities",
     "unblockedCriticalAttackPaths", "residualRisksAccepted",
     "incidentResponseVerified", "backupRestoreVerified",
     "blockingControlFailures", "blockingControlsNotVerified",

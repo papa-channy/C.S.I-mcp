@@ -45,7 +45,7 @@ const score: ScoreForReport = {
 };
 
 const releaseEvaluation: ReleaseEvaluationForReport = {
-  gate: 4, controlCoverage: 80, criticalFindings: 0, highFindings: 0,
+  gate: 4, controlCoverage: 80, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0,
   unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0,
   incidentResponseVerified: true, backupRestoreVerified: true,
   blockingControlFailures: [], blockingControlsNotVerified: [],

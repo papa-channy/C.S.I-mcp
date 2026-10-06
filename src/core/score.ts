@@ -34,8 +34,8 @@ export interface DomainScore {
   notTestedCount: number;
   notApplicableCount: number;
   acceptedRiskCount: number;
-  criticalFindings: number;
-  highFindings: number;
+  criticalSeverityFindings: number;
+  highSeverityFindings: number;
 }
 
 export interface Score {
@@ -109,8 +109,8 @@ export function calculateScore(
       notTestedCount: domainAssessments.filter((a) => a.status === "NOT_TESTED").length,
       notApplicableCount: domainAssessments.filter((a) => a.status === "N/A").length,
       acceptedRiskCount: domainAssessments.filter((a) => a.status === "ACCEPTED_RISK").length,
-      criticalFindings: countActiveFindings(findings, domainControlIds, "critical"),
-      highFindings: countActiveFindings(findings, domainControlIds, "high"),
+      criticalSeverityFindings: countActiveFindings(findings, domainControlIds, "critical"),
+      highSeverityFindings: countActiveFindings(findings, domainControlIds, "high"),
     });
   }
 

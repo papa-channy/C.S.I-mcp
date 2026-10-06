@@ -20,7 +20,7 @@ export const recordFindingInputShape = {
     .describe(
       "What kind of thing this finding actually is, independent of severity. " +
         "Only confirmed_vulnerability findings count toward the production_release gate's " +
-        "criticalFindings/highFindings thresholds — picking the right type is not cosmetic. " +
+        "confirmedCriticalVulnerabilities/confirmedHighVulnerabilities thresholds — picking the right type is not cosmetic. " +
         "Work through these questions IN ORDER and stop at the first one that applies:\n" +
         "1. Did you trace a concrete, attacker-reachable path to impact end-to-end, with code " +
         "evidence for every step (not just the starting weakness)? -> confirmed_vulnerability.\n" +

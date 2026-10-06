@@ -29,8 +29,8 @@ export interface ScoreForReport {
 export interface ReleaseEvaluationForReport {
   gate: number;
   controlCoverage: number;
-  criticalFindings: number;
-  highFindings: number;
+  confirmedCriticalVulnerabilities: number;
+  confirmedHighVulnerabilities: number;
   unblockedCriticalAttackPaths: number;
   residualRisksAccepted: number;
   incidentResponseVerified: boolean;

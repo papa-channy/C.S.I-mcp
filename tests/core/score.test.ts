@@ -104,7 +104,7 @@ describe("calculateScore — domainScores", () => {
     expect(result.domainScores.map((d) => d.domain)).toEqual(["appsec", "infra"]);
   });
 
-  it("DomainScore reports every per-status count and coverage field, not just domain/criticalFindings/highFindings", () => {
+  it("DomainScore reports every per-status count and coverage field, not just domain/criticalSeverityFindings/highSeverityFindings", () => {
     // One domain, 7 controls: 2 PASS, 1 FAIL, 1 PARTIAL, 1 NOT_TESTED, 1 N/A, 1 ACCEPTED_RISK.
     const sevenControls: ControlDomainInput[] = Array.from({ length: 7 }, (_, i) => ({ controlId: `S-00${i + 1}`, domain: "appsec" }));
     const assessments: ControlAssessmentInput[] = [
@@ -147,7 +147,17 @@ describe("calculateScore — domainScores", () => {
     const result = calculateScore(assessments, twoDomainControls, findings, model);
     const appsec = result.domainScores.find((d) => d.domain === "appsec")!;
     const infra = result.domainScores.find((d) => d.domain === "infra")!;
-    expect(appsec.criticalFindings).toBe(1);
-    expect(infra.highFindings).toBe(0);
+    expect(appsec.criticalSeverityFindings).toBe(1);
+    expect(infra.highSeverityFindings).toBe(0);
+  });
+
+  it("criticalSeverityFindings counts an active hardening-type finding at severity critical — it is not limited to confirmed_vulnerability", () => {
+    const assessments: ControlAssessmentInput[] = [{ controlId: "A-001", status: "PASS" }];
+    const findings: FindingInput[] = [
+      { controlIds: ["A-001"], severity: "critical", status: "open" },
+    ];
+    const result = calculateScore(assessments, [controls[0]], findings, model);
+    const appsec = result.domainScores.find((d) => d.domain === "appsec")!;
+    expect(appsec.criticalSeverityFindings).toBe(1);
   });
 });

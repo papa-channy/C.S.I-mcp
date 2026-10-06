@@ -9,7 +9,7 @@
     "type": {
       "type": "string",
       "enum": ["confirmed_vulnerability", "likely_vulnerability", "control_gap", "hardening", "process_gap", "accepted_design", "needs_validation"],
-      "description": "Classifies what kind of thing this Finding actually is, independent of severity. Only confirmed_vulnerability findings count toward the production_release gate's criticalFindings/highFindings thresholds (see release-evaluator.ts) — a high-severity control_gap or hardening finding is real and worth fixing, but is not treated as a demonstrated exploitable vulnerability that by itself blocks release."
+      "description": "Classifies what kind of thing this Finding actually is, independent of severity. Only confirmed_vulnerability findings count toward the production_release gate's confirmedCriticalVulnerabilities/confirmedHighVulnerabilities thresholds (see release-evaluator.ts) — a high-severity control_gap or hardening finding is real and worth fixing, but is not treated as a demonstrated exploitable vulnerability that by itself blocks release."
     },
     "affectedAsset": { "type": "string" },
     "controlIds": { "type": "array", "minItems": 1, "items": { "type": "string" } },
