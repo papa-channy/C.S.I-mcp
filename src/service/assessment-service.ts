@@ -1,4 +1,4 @@
-import type { AssessmentRun, Control, ControlAssessment, Evidence, EvidenceType, SecurityRepository, Finding } from "../core/repository.js";
+import type { AssessmentRun, Control, ControlAssessment, Evidence, EvidenceType, SecurityRepository, Finding, Target } from "../core/repository.js";
 import type { AssessmentPlan } from "../core/plan-expander.js";
 import { evaluateApplicability, type Verdict } from "../core/applicability.js";
 import { withNotFound, ServiceError } from "./errors.js";
@@ -95,10 +95,14 @@ function defaultPlanId(projectId: string): string {
 export class AssessmentService {
   constructor(
     private readonly repository: SecurityRepository,
-    private readonly now: () => string = () => new Date().toISOString()
+    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly engineVersionAtRunStart: string
   ) {}
 
-  async startAssessmentRun(projectId: string): Promise<StartAssessmentRunResult> {
+  async startAssessmentRun(
+    projectId: string,
+    input?: { target?: Target }
+  ): Promise<StartAssessmentRunResult> {
     const project = await withNotFound(this.repository.getProject(projectId), `Project "${projectId}" not found`, { projectId });
 
     const planId = defaultPlanId(projectId);
@@ -116,6 +120,9 @@ export class AssessmentService {
     const run: AssessmentRun = {
       runId, projectId, planId: plan.planId, planVersion: plan.version ?? 1, profileRevision: project.profileRevision,
       catalogVersion, batchIds: [], status: "running", startedAt, completedAt: null,
+      target: input?.target ?? null,
+      profileSnapshot: structuredClone(project.profile),
+      engineVersionAtRunStart: this.engineVersionAtRunStart,
     };
     await this.repository.saveRun(run);
     return { runId, startedAt };

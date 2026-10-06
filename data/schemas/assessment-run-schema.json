@@ -13,7 +13,20 @@
     "batchIds": { "type": "array", "items": { "type": "string" } },
     "status": { "type": "string", "enum": ["pending", "running", "completed", "failed", "partial"] },
     "startedAt": { "type": ["string", "null"], "format": "date-time" },
-    "completedAt": { "type": ["string", "null"], "format": "date-time" }
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "target": {
+      "type": ["object", "null"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "commitSha": { "type": ["string", "null"] },
+        "branchOrTag": { "type": ["string", "null"] },
+        "dirty": { "type": ["boolean", "null"] }
+      },
+      "required": ["repository", "commitSha", "branchOrTag", "dirty"],
+      "additionalProperties": false
+    },
+    "profileSnapshot": { "type": ["object", "null"] },
+    "engineVersionAtRunStart": { "type": ["string", "null"] }
   },
   "required": ["runId", "projectId", "planId", "planVersion", "profileRevision", "catalogVersion", "batchIds", "status"],
   "additionalProperties": false

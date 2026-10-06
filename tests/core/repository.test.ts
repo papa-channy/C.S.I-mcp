@@ -43,7 +43,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach } from "vitest";
 import { join } from "node:path";
-import type { AssessmentBatch, AssessmentRun, ControlAssessment, Evidence, Finding, Project, RiskAcceptance } from "../../src/core/repository.js";
+import type { AssessmentBatch, AssessmentRun, ControlAssessment, Evidence, Finding, Project, RiskAcceptance, Target } from "../../src/core/repository.js";
 import type { ProjectReport } from "../../src/core/report-builder.js";
 import type { AssessmentPlan } from "../../src/core/plan-expander.js";
 
@@ -76,6 +76,32 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
     await repo.saveRun(run);
     const reloaded = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "runs", "RUN-1.json")));
     expect(reloaded).toEqual(run);
+  });
+
+  it("saveRun then reload round-trips an AssessmentRun with target/profileSnapshot/engineVersionAtRunStart populated", async () => {
+    const run: AssessmentRun = {
+      runId: "RUN-2", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "2.1.0", batchIds: [], status: "pending",
+      target: { repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false },
+      profileSnapshot: { securityLevel: "SVL-2", exposure: ["internet_public"] },
+      engineVersionAtRunStart: "0.9.0",
+    };
+    await repo.saveRun(run);
+    const reloaded = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "runs", "RUN-2.json")));
+    expect(reloaded).toEqual(run);
+  });
+
+  it("a legacy AssessmentRun JSON file with target/profileSnapshot/engineVersionAtRunStart entirely absent still loads via getRun", async () => {
+    const legacyRun = {
+      runId: "RUN-LEGACY", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "2.1.0", batchIds: [], status: "pending",
+    };
+    mkdirSync(join(dir, "projects", "PRJ-1", "runs"), { recursive: true });
+    writeFileSync(join(dir, "projects", "PRJ-1", "runs", "RUN-LEGACY.json"), JSON.stringify(legacyRun));
+    const loaded = await repo.getRun("PRJ-1", "RUN-LEGACY");
+    expect(loaded.target).toBeUndefined();
+    expect(loaded.profileSnapshot).toBeUndefined();
+    expect(loaded.engineVersionAtRunStart).toBeUndefined();
   });
 
   it("saveBatch then reload round-trips the AssessmentBatch", async () => {
