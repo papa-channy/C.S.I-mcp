@@ -39,19 +39,21 @@ describe("project-report-schema", () => {
       { findingId: "FND-002", priorityIndex: 0, criticalityIndex: 7, title: "Predictable session token" },
       { findingId: "FND-003", priorityIndex: 1, criticalityIndex: 9, title: "SQL injection in search endpoint" },
     ],
+    projectFindingSnapshots: [],
     releaseEvaluation: {
       gate: 4,
       controlCoverage: 91.67,
       confirmedCriticalVulnerabilities: 1,
       confirmedHighVulnerabilities: 2,
-      unblockedCriticalAttackPaths: 0,
       residualRisksAccepted: 0,
-      incidentResponseVerified: true,
-      backupRestoreVerified: true,
       blockingControlFailures: ["IAM-AUTH-005"],
       blockingControlsNotVerified: [],
       result: "blocked",
     },
+    target: null,
+    profileSnapshot: null,
+    engineVersionAtRunStart: null,
+    reportSchemaVersion: "2.0.0",
     summary: "Two critical findings remain open; release blocked until resolved.",
   };
 
@@ -90,5 +92,39 @@ describe("project-report-schema", () => {
     const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
     const badFindings = [{ findingId: "FND-001", priorityIndex: 0, criticalityIndex: 9 }];
     expect(validate({ ...valid, prioritizedFindings: badFindings })).toBe(false);
+  });
+
+  it("accepts a report with a populated projectFindingSnapshots entry", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
+    const withSnapshot = {
+      ...valid,
+      projectFindingSnapshots: [{
+        findingId: "FND-001", title: "x", type: "confirmed_vulnerability", severity: "critical",
+        controlIds: ["IAM-AUTHZ-001"], status: "open", priorityIndex: 0, criticalityIndex: 9,
+      }],
+    };
+    expect(validate(withSnapshot), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("rejects a report with unblockedCriticalAttackPaths present (dropped field)", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
+    const withDropped = { ...valid, releaseEvaluation: { ...valid.releaseEvaluation, unblockedCriticalAttackPaths: 0 } };
+    expect(validate(withDropped)).toBe(false);
+  });
+
+  it("rejects a report missing reportSchemaVersion", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
+    const { reportSchemaVersion, ...rest } = valid;
+    expect(validate(rest)).toBe(false);
+  });
+
+  it("rejects a report with any reportSchemaVersion other than the current '2.0.0'", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
+    expect(validate({ ...valid, reportSchemaVersion: "1.0.0" })).toBe(false);
+  });
+
+  it("accepts target/profileSnapshot/engineVersionAtRunStart as null", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
+    expect(validate({ ...valid, target: null, profileSnapshot: null, engineVersionAtRunStart: null }), JSON.stringify(validate.errors)).toBe(true);
   });
 });

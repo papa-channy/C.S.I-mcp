@@ -76,6 +76,26 @@
         "additionalProperties": false
       }
     },
+    "projectFindingSnapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "findingId": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "enum": ["confirmed_vulnerability", "likely_vulnerability", "control_gap", "hardening", "process_gap", "accepted_design", "needs_validation"] },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "informational"] },
+          "controlIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "status": { "type": "string", "enum": ["open", "in_progress", "resolved", "accepted", "false_positive"] },
+          "priorityIndex": { "type": "integer", "minimum": 0, "maximum": 9 },
+          "criticalityIndex": { "type": "integer", "minimum": 0, "maximum": 9 },
+          "attackScenario": { "type": "string", "minLength": 1 },
+          "exploitabilityEvidence": { "type": "string", "minLength": 1 }
+        },
+        "required": ["findingId", "title", "type", "severity", "controlIds", "status", "priorityIndex", "criticalityIndex"],
+        "additionalProperties": false
+      }
+    },
     "releaseEvaluation": {
       "type": "object",
       "properties": {
@@ -83,19 +103,35 @@
         "controlCoverage": { "type": "number", "minimum": 0, "maximum": 100 },
         "confirmedCriticalVulnerabilities": { "type": "integer", "minimum": 0 },
         "confirmedHighVulnerabilities": { "type": "integer", "minimum": 0 },
-        "unblockedCriticalAttackPaths": { "type": "integer", "minimum": 0 },
         "residualRisksAccepted": { "type": "integer", "minimum": 0 },
-        "incidentResponseVerified": { "type": "boolean" },
-        "backupRestoreVerified": { "type": "boolean" },
         "blockingControlFailures": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "blockingControlsNotVerified": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "result": { "type": "string", "enum": ["approved", "blocked", "indeterminate"] }
       },
-      "required": ["gate", "controlCoverage", "confirmedCriticalVulnerabilities", "confirmedHighVulnerabilities", "unblockedCriticalAttackPaths", "residualRisksAccepted", "incidentResponseVerified", "backupRestoreVerified", "blockingControlFailures", "blockingControlsNotVerified", "result"],
+      "required": ["gate", "controlCoverage", "confirmedCriticalVulnerabilities", "confirmedHighVulnerabilities", "residualRisksAccepted", "blockingControlFailures", "blockingControlsNotVerified", "result"],
       "additionalProperties": false
     },
+    "target": {
+      "description": "Caller-asserted assessment target provenance, declared at start_assessment_run time; not independently verified by this server.",
+      "type": ["object", "null"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "commitSha": { "type": ["string", "null"] },
+        "branchOrTag": { "type": ["string", "null"] },
+        "dirty": { "type": ["boolean", "null"] }
+      },
+      "required": ["repository", "commitSha", "branchOrTag", "dirty"],
+      "additionalProperties": false
+    },
+    "profileSnapshot": { "type": ["object", "null"] },
+    "engineVersionAtRunStart": { "type": ["string", "null"] },
+    "reportSchemaVersion": { "const": "2.0.0" },
     "summary": { "type": "string", "minLength": 1 }
   },
-  "required": ["reportId", "projectId", "assessmentRunId", "catalogVersion", "profileRevision", "criticalityFormula", "generatedAt", "score", "prioritizedFindings", "releaseEvaluation", "summary"],
+  "required": [
+    "reportId", "projectId", "assessmentRunId", "catalogVersion", "profileRevision", "criticalityFormula",
+    "generatedAt", "score", "prioritizedFindings", "projectFindingSnapshots", "releaseEvaluation",
+    "target", "profileSnapshot", "engineVersionAtRunStart", "reportSchemaVersion", "summary"
+  ],
   "additionalProperties": false
 }

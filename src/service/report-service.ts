@@ -64,7 +64,10 @@ export class ReportService {
 
     const report = buildReport({
       reportId: generateUuid(),
-      run: { runId: run.runId, projectId: run.projectId, catalogVersion: run.catalogVersion, profileRevision: run.profileRevision },
+      run: {
+        runId: run.runId, projectId: run.projectId, catalogVersion: run.catalogVersion, profileRevision: run.profileRevision,
+        target: run.target ?? null, profileSnapshot: run.profileSnapshot ?? null, engineVersionAtRunStart: run.engineVersionAtRunStart ?? null,
+      },
       criticalityFormula: { id: criticalityFormula.formulaId, version: criticalityFormula.version },
       generatedAt: this.now,
       score, findings, releaseEvaluation, summary: input.summary,
