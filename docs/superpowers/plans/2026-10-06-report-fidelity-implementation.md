@@ -223,7 +223,7 @@ In `tests/service/assessment-service.test.ts`, add these tests inside the existi
 ```ts
   it("captures a declared target verbatim onto the new run", async () => {
     const repo = await makeProjectRepo();
-    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const service = new AssessmentService(repo, () => FIXED_NOW, "0.9.0");
     const target = { repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false };
     const result = await service.startAssessmentRun("PRJ-1", { target });
     const run = await repo.getRun("PRJ-1", result.runId);
@@ -232,23 +232,33 @@ In `tests/service/assessment-service.test.ts`, add these tests inside the existi
 
   it("defaults target to null when the caller omits it entirely", async () => {
     const repo = await makeProjectRepo();
-    const service = new AssessmentService(repo, () => FIXED_NOW);
+    const service = new AssessmentService(repo, () => FIXED_NOW, "0.9.0");
     const result = await service.startAssessmentRun("PRJ-1");
     const run = await repo.getRun("PRJ-1", result.runId);
     expect(run.target).toBeNull();
   });
 
   it("captures a deep copy of the project's profile at run-start — later mutation of the live profile does not affect the stored snapshot", async () => {
+    // This test's validity depends on observing the exact object saveRun() was called with, not
+    // a value re-read through a repository that might itself copy on read or write (a
+    // JSON-serializing repository, for instance, would accidentally "deep copy" everything on
+    // every read, masking a missing structuredClone in the service). Wrapping saveRun to capture
+    // its argument directly proves the invariant regardless of which SecurityRepository
+    // implementation backs this test — do not weaken this to a plain getRun() re-read.
     const repo = await makeProjectRepo();
-    const service = new AssessmentService(repo, () => FIXED_NOW);
-    const result = await service.startAssessmentRun("PRJ-1");
-    const run = await repo.getRun("PRJ-1", result.runId);
-    expect(run.profileSnapshot).toEqual({ securityLevel: "SVL-2", exposure: ["internet_public"], features: { authentication: true }, technologies: {} });
+    let capturedRun: import("../../src/core/repository.js").AssessmentRun | undefined;
+    const originalSaveRun = repo.saveRun.bind(repo);
+    repo.saveRun = async (run) => {
+      capturedRun = run;
+      return originalSaveRun(run);
+    };
+    const service = new AssessmentService(repo, () => FIXED_NOW, "0.9.0");
+    await service.startAssessmentRun("PRJ-1");
+    expect(capturedRun?.profileSnapshot).toEqual({ securityLevel: "SVL-2", exposure: ["internet_public"], features: { authentication: true }, technologies: {} });
 
     const project = await repo.getProject("PRJ-1");
     (project.profile as { exposure: string[] }).exposure.push("mutated-after-run-start");
-    const reRead = await repo.getRun("PRJ-1", result.runId);
-    expect((reRead.profileSnapshot as { exposure: string[] }).exposure).toEqual(["internet_public"]);
+    expect((capturedRun?.profileSnapshot as { exposure: string[] }).exposure).toEqual(["internet_public"]);
   });
 
   it("captures the injected engineVersion onto the new run as engineVersionAtRunStart", async () => {
@@ -259,12 +269,11 @@ In `tests/service/assessment-service.test.ts`, add these tests inside the existi
     expect(run.engineVersionAtRunStart).toBe("0.9.0");
   });
 
-  it("engineVersionAtRunStart defaults to null when AssessmentService is constructed without one", async () => {
-    const repo = await makeProjectRepo();
-    const service = new AssessmentService(repo, () => FIXED_NOW);
-    const result = await service.startAssessmentRun("PRJ-1");
-    const run = await repo.getRun("PRJ-1", result.runId);
-    expect(run.engineVersionAtRunStart).toBeNull();
+  it("a TypeScript object literal omitting the third constructor argument does not compile (type-level check, not a runtime assertion)", () => {
+    // @ts-expect-error — engineVersionAtRunStart is required, not optional; this line exists so
+    // `npx tsc --noEmit` fails loudly if a future edit accidentally gives it a default again.
+    const service = new AssessmentService(new FakeRepository(), () => FIXED_NOW);
+    expect(service).toBeDefined(); // unreachable at the type level; keeps the file a valid test
   });
 ```
 
@@ -292,9 +301,11 @@ export class AssessmentService {
   constructor(
     private readonly repository: SecurityRepository,
     private readonly now: () => string = () => new Date().toISOString(),
-    private readonly engineVersionAtRunStart: string | null = null
+    private readonly engineVersionAtRunStart: string
   ) {}
 ```
+
+`engineVersionAtRunStart` is **required, with no default** — deliberately unlike `now`. A silent default (e.g. `string | null = null`) would let a future call site construct a production `AssessmentService` without ever noticing it forgot to wire the real version, silently degrading every run's provenance forever. Requiring it forces every construction site (including this plan's own composition-root wiring, Step 9 below) to make an explicit choice. This is strictly about the *constructor parameter* — `AssessmentRun.engineVersionAtRunStart` itself (the stored field) stays optional-and-nullable per the Global Constraints, since a legacy persisted run genuinely has no value to report.
 
 Add this import:
 
@@ -364,12 +375,80 @@ to:
   }
 ```
 
-- [ ] **Step 9: Run to verify it passes**
+- [ ] **Step 9: Run to verify the new tests pass (expect other pre-existing tests in this file to now fail)**
 
 Run: `npx vitest run tests/service/assessment-service.test.ts`
-Expected: PASS, every test in the file (including all pre-existing ones — none of this task's changes alter any other method's behavior).
+Expected: the tests added in Step 6 PASS. Every *other*, pre-existing test in this file that constructs `new AssessmentService(repo, someNow)` with only two arguments now FAILS to compile (`engineVersionAtRunStart` is required, per Step 8) — this is expected and is what Step 10 below fixes. Confirm the failures are TypeScript compile errors on the missing third argument, not a different kind of failure.
 
-- [ ] **Step 10: Wire the `target` input into `start_assessment_run`'s MCP tool, write the failing tool test**
+- [ ] **Step 10: Mechanical sweep — supply a literal test engine version to every other pre-existing `AssessmentService` construction**
+
+Making `engineVersionAtRunStart` required (Step 8) breaks every pre-existing call site across the test suite that constructs `new AssessmentService(...)` with fewer than three arguments. Find every occurrence:
+
+Run: `rg -n "new AssessmentService\(" tests/ src/`
+
+As of this plan's writing there are roughly 53 such occurrences, concentrated in `tests/service/assessment-service.test.ts`, `tests/mcp/tools/assessment-tools.test.ts`, and `tests/integration/full-workflow.test.ts` (`src/mcp/server.ts`'s own construction is handled separately, in Step 11). For every call site with fewer than three arguments, add a literal third argument `"0.9.0-test"` — a placeholder version string distinct from both the real `package.json` version and from any specific version string an individual test already asserts against (so it's visually obvious in a failure message that this is the sweep's filler value, not a meaningful fixture). Do **not** touch call sites that already pass a specific third argument for their own test's reasons (e.g. this task's own new `"0.9.0"`-asserting tests from Step 6) — only add the argument where it's currently missing.
+
+This is a pure mechanical edit — no test's assertions, fixture data, or expected values change, only the `AssessmentService` constructor calls each test already makes.
+
+- [ ] **Step 11: Run to verify it passes**
+
+Run: `npx tsc --noEmit`
+Expected: clean — confirms every `new AssessmentService(...)` call site in `tests/` now supplies all three arguments. If this still fails, `rg -n "new AssessmentService\("` again and check for a call site the sweep missed.
+
+Run: `npx vitest run`
+Expected: PASS, every test file (the sweep is purely additive — no assertion anywhere changed).
+
+- [ ] **Step 12: Wire the real `engineVersionAtRunStart` value at the composition root (`server.ts`), bump `package.json`'s version**
+
+This step was originally planned for Task 3, but belongs here: Task 1 introduces the `engineVersionAtRunStart` constructor requirement, so Task 1's own commit should leave the real server wired end-to-end, not depend on a later task to supply the only non-test construction of `AssessmentService`.
+
+In `package.json`, change `"version": "0.8.0"` to `"version": "0.9.0"`.
+
+In `src/mcp/server.ts`, add these imports at the top:
+
+```ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+```
+
+Add this near the top of the file, after the imports, before `export function buildServer`:
+
+```ts
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function readEngineVersion(): string {
+  const packageJsonPath = join(__dirname, "..", "..", "package.json");
+  const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { version: string };
+  return pkg.version;
+}
+```
+
+Change the `AssessmentService` construction line inside `buildServer` from:
+
+```ts
+  const assessmentService = new AssessmentService(repository);
+```
+
+to:
+
+```ts
+  const assessmentService = new AssessmentService(repository, undefined, readEngineVersion());
+```
+
+(`undefined` for the second argument keeps `now`'s existing default; the third argument is no longer optional, so it must be passed explicitly here.)
+
+- [ ] **Step 13: Manually verify `start_assessment_run` now captures the real package version end-to-end**
+
+Run: `node --experimental-strip-types -e "
+import { buildServer } from './src/mcp/server.ts';
+const server = buildServer();
+console.log('server built OK');
+"`
+
+Expected: prints `server built OK` with no error (confirms `readEngineVersion()` resolves `package.json`'s real path correctly from `src/mcp/server.ts`'s location — if this throws an `ENOENT`, the relative path in `readEngineVersion` needs adjusting). If `--experimental-strip-types` isn't available in the installed Node version, instead run `npx tsx -e "import('./src/mcp/server.ts').then(m => { m.buildServer(); console.log('server built OK'); })"`.
+
+- [ ] **Step 14: Wire the `target` input into `start_assessment_run`'s MCP tool, write the failing tool test**
 
 Add this test to `tests/mcp/tools/assessment-tools.test.ts`, near wherever `start_assessment_run` is already exercised (search the file for `"start_assessment_run"` to find the right `describe` block):
 
@@ -392,12 +471,12 @@ Add this test to `tests/mcp/tools/assessment-tools.test.ts`, near wherever `star
 
 (If `makeConnectedClient` in this file doesn't already seed a project with id `PRJ-1`, use whatever project id the file's existing helper already seeds instead.)
 
-- [ ] **Step 11: Run to verify it fails**
+- [ ] **Step 15: Run to verify it fails**
 
 Run: `npx vitest run tests/mcp/tools/assessment-tools.test.ts`
 Expected: FAIL — `start_assessment_run`'s zod input shape doesn't declare `target` yet, so a missing-`repository` target object is silently accepted (zod would just ignore the unrecognized shape or MCP validation wouldn't reject it) rather than being rejected.
 
-- [ ] **Step 12: Implement the zod input and handler change**
+- [ ] **Step 16: Implement the zod input and handler change**
 
 In `src/mcp/tools/start-assessment-run.ts`, change:
 
@@ -476,37 +555,43 @@ export function registerStartAssessmentRunTool(server: McpServer, service: Asses
 }
 ```
 
-- [ ] **Step 13: Run to verify it passes**
+- [ ] **Step 17: Run to verify it passes**
 
 Run: `npx vitest run tests/mcp/tools/assessment-tools.test.ts`
 Expected: PASS, every test in the file.
 
-- [ ] **Step 14: Typecheck and run the full suite**
+- [ ] **Step 18: Typecheck and run the full suite**
 
 Run: `npx tsc --noEmit`
-Expected: clean.
+Expected: clean — this also confirms Step 10's mechanical sweep caught every pre-existing `AssessmentService` construction.
 
 Run: `npx vitest run`
-Expected: PASS, every test file. (`AssessmentService`'s constructor gained a third parameter with a default, so no other call site needs updating; `startAssessmentRun`'s second parameter is optional, so no existing single-argument call site breaks.)
+Expected: PASS, every test file.
 
-- [ ] **Step 15: Commit**
+- [ ] **Step 19: Commit**
 
 ```bash
 git add src/core/repository.ts src/service/assessment-service.ts src/mcp/tools/start-assessment-run.ts \
+  src/mcp/server.ts package.json \
   data/schemas/assessment-run-schema.json \
   tests/core/repository.test.ts tests/schemas/assessment-run-schema.test.ts \
-  tests/service/assessment-service.test.ts tests/mcp/tools/assessment-tools.test.ts
+  tests/service/assessment-service.test.ts tests/mcp/tools/assessment-tools.test.ts \
+  tests/integration/full-workflow.test.ts
 git commit -m "feat(core,service,mcp): capture target/profileSnapshot/engineVersionAtRunStart on AssessmentRun
 
-Three new optional-and-nullable AssessmentRun fields, all captured once
-at start_assessment_run time rather than re-read later: target (caller-
-asserted repository/commit provenance), profileSnapshot (a deep copy of
-the project's profile at that moment), and engineVersionAtRunStart
-(this package's version, injected into AssessmentService's constructor
-rather than read fresh on every call). Optional-and-nullable typing
-lets a legacy run missing these keys entirely still validate, while a
-new run can still explicitly record target: null when the caller
-declines to declare it.
+Three new AssessmentRun fields, all captured once at start_assessment_run
+time rather than re-read later: target (caller-asserted repository/commit
+provenance), profileSnapshot (a deep copy of the project's profile at
+that moment), and engineVersionAtRunStart (this package's version).
+AssessmentRun's own fields are optional-and-nullable, so a legacy run
+missing these keys entirely still validates, and a new run can still
+explicitly record target: null when the caller declines to declare it.
+engineVersionAtRunStart is injected via a required (non-defaulted)
+AssessmentService constructor parameter, wired to the real package.json
+version at the composition root (server.ts) in this same commit — a
+silent default would have let a future call site forget to wire a real
+version without any error. package.json bumped to 0.9.0 so the injected
+version means something starting from this release.
 
 See docs/superpowers/specs/2026-10-06-report-fidelity-design.md §3.3"
 ```
@@ -780,7 +865,19 @@ Expected: PASS, every test in all four files.
 
 In `src/mcp/tools/record-finding.ts`, find the `type` field's zod `.describe(...)` string (it currently reads in part: `"Only confirmed_vulnerability findings count toward the production_release gate's criticalFindings/highFindings thresholds — picking the right type is not cosmetic."`). Change `criticalFindings/highFindings` to `confirmedCriticalVulnerabilities/confirmedHighVulnerabilities` in that sentence. This is a prose-only change (no behavior change) — fixing a tool description that would otherwise reference field names that no longer exist on `evaluate_release`'s live output.
 
-- [ ] **Step 7: Typecheck and run the full suite**
+- [ ] **Step 7: Scoped reconciliation grep — confirm every remaining `criticalFindings`/`highFindings` occurrence is intentional**
+
+Run: `rg -n '\bcriticalFindings\b|\bhighFindings\b' src tests data`
+
+Classify every hit into exactly one of these three buckets:
+
+- **Intentional, keep as-is:** `data/process/release-gates.json` and any reference to it (`ReleaseGateData.ReleaseGate.requiresByLevel`, `src/core/repository.ts`'s type declaration, `tests/core/repository.test.ts`'s `"getReleaseGates returns gate 4's requiresByLevel thresholds"` test) — this is the unrelated field the Global Constraints explicitly say not to touch (§ "Do not touch `ReleaseGateData...`").
+- **Bug — rename it:** any occurrence in `src/core/score.ts`, `src/core/release-evaluator.ts`, `src/core/report-builder.ts`, or their test files that this task's Steps 1-5 should have already renamed but missed.
+- **Historical/documentary, may keep:** prose inside `## 6. Adoption Log` of `docs/superpowers/specs/2026-10-06-report-fidelity-design.md` or similar spec/plan documents that are deliberately describing the *old* names as historical context (e.g. "renamed `criticalFindings` to ..."). Do not edit these.
+
+If anything falls into the second bucket, fix it now and re-run this grep until only the first and third buckets remain.
+
+- [ ] **Step 8: Typecheck and run the full suite**
 
 Run: `npx tsc --noEmit`
 Expected: clean.
@@ -788,7 +885,7 @@ Expected: clean.
 Run: `npx vitest run`
 Expected: PASS, every test file.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/core/score.ts src/core/release-evaluator.ts src/core/report-builder.ts src/mcp/tools/record-finding.ts \
@@ -819,14 +916,14 @@ See docs/superpowers/specs/2026-10-06-report-fidelity-design.md §3.2"
 **Files:**
 - Modify: `src/core/report-builder.ts`
 - Modify: `src/service/report-service.ts`
-- Modify: `src/mcp/server.ts`
-- Modify: `package.json`
 - Modify: `data/schemas/project-report-schema.json`
 - Test: `tests/core/report-builder.test.ts`
 - Test: `tests/service/report-service.test.ts`
 - Test: `tests/core/repository.test.ts`
 - Test: `tests/schemas/project-report-schema.test.ts`
 - Test: `tests/schema-drift.test.ts`
+
+(`src/mcp/server.ts` and `package.json` are **not** touched by this task — Task 1 already wires `engineVersionAtRunStart` at the composition root and bumps the version, since Task 1 is what introduces the required constructor parameter in the first place.)
 
 **Interfaces:**
 - Consumes (from Task 1): `AssessmentRun.target`/`profileSnapshot`/`engineVersionAtRunStart`. Consumes (from Task 2): `ReleaseEvaluationForReport.confirmedCriticalVulnerabilities`/`confirmedHighVulnerabilities` already renamed.
@@ -1004,14 +1101,17 @@ export function buildProjectFindingSnapshots(findings: FindingForReport[]): Find
     title: f.title,
     type: f.type,
     severity: f.severity,
-    controlIds: f.controlIds,
+    controlIds: [...f.controlIds], // defensive copy — ProjectReport is an immutable snapshot and must not share array references with its input
     status: f.status,
     priorityIndex: f.priority.index,
     criticalityIndex: f.criticality.index,
     ...(f.attackScenario !== undefined ? { attackScenario: f.attackScenario } : {}),
     ...(f.exploitabilityEvidence !== undefined ? { exploitabilityEvidence: f.exploitabilityEvidence } : {}),
   }));
-  return snapshots.sort((a, b) => a.findingId.localeCompare(b.findingId));
+  // Explicit ASCII/code-unit comparison, not localeCompare — localeCompare's result can vary with
+  // the running environment's ICU/locale configuration, which would undermine the byte-reproducible
+  // ordering this sort exists to guarantee.
+  return snapshots.sort((a, b) => (a.findingId < b.findingId ? -1 : a.findingId > b.findingId ? 1 : 0));
 }
 ```
 
@@ -1027,6 +1127,34 @@ Run: `npx vitest run tests/core/report-builder.test.ts`
 Expected: PASS, every test in the file.
 
 - [ ] **Step 5: Write the failing tests for `roundReportNumber`, the provenance fields, `reportSchemaVersion`, and the three dropped fields**
+
+First, retype the module-level `releaseEvaluation` fixture (established in Task 2 Step 3, reused by every `buildReport` test in this file) from `ReleaseEvaluationForReport` to the core `ReleaseEvaluation` type, since `buildReport`'s `releaseEvaluation` input parameter changes to that wider type later in this task (Step 7). Change:
+
+```ts
+const releaseEvaluation: ReleaseEvaluationForReport = {
+  gate: 4, controlCoverage: 80, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0,
+  unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0,
+  incidentResponseVerified: true, backupRestoreVerified: true,
+  blockingControlFailures: [], blockingControlsNotVerified: [],
+  result: "approved",
+};
+```
+
+to:
+
+```ts
+import type { ReleaseEvaluation } from "../../src/core/release-evaluator.js";
+
+const releaseEvaluation: ReleaseEvaluation = {
+  gate: 4, controlCoverage: 80, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0,
+  unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0,
+  incidentResponseVerified: true, backupRestoreVerified: true,
+  blockingControlFailures: [], blockingControlsNotVerified: [],
+  result: "approved",
+};
+```
+
+(The object literal's fields are unchanged — only the declared type widens. This fixture still genuinely carries `unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified`, which is exactly what makes the "drops unblockedCriticalAttackPaths/..." test below meaningful: the input truly has those fields, and the test proves the output doesn't.)
 
 Add this to `tests/core/report-builder.test.ts`:
 
@@ -1062,7 +1190,7 @@ describe("buildReport — rounding applied at serialization only", () => {
         notApplicableCount: 0, acceptedRiskCount: 0, criticalSeverityFindings: 0, highSeverityFindings: 0,
       }],
     };
-    const unroundedRelease: ReleaseEvaluationForReport = { ...releaseEvaluation, controlCoverage: 66.66666666666667 };
+    const unroundedRelease: ReleaseEvaluation = { ...releaseEvaluation, controlCoverage: 66.66666666666667 };
     const report = buildReport({
       reportId: "REP-1", run, criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" },
       generatedAt: () => "2026-09-28T00:00:00.000Z", score: unroundedScore, findings: [], releaseEvaluation: unroundedRelease, summary: "ok",
@@ -1076,7 +1204,7 @@ describe("buildReport — rounding applied at serialization only", () => {
 
   it("rounding the report's displayed coverage does not change what the gate decided — a synthetic just-under-threshold score stays non-approved even though its rounded display reads 80.0", () => {
     const justUnder: ScoreForReport = { ...score, coverage: { ...score.coverage, coveragePercent: 79.996 } };
-    const blockedRelease: ReleaseEvaluationForReport = { ...releaseEvaluation, controlCoverage: 79.996, result: "indeterminate" };
+    const blockedRelease: ReleaseEvaluation = { ...releaseEvaluation, controlCoverage: 79.996, result: "indeterminate" };
     const report = buildReport({
       reportId: "REP-1", run, criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" },
       generatedAt: () => "2026-09-28T00:00:00.000Z", score: justUnder, findings: [], releaseEvaluation: blockedRelease, summary: "ok",
@@ -1157,7 +1285,9 @@ export function roundReportNumber(value: number): number {
 }
 ```
 
-Add the `import type { Target } from "./repository.js";` and `import type { ProjectProfile } from "./applicability.js";` lines at the top of the file (check first whether either is already imported from Task 1/2's changes before adding a duplicate).
+Add the `import type { Target } from "./repository.js";`, `import type { ProjectProfile } from "./applicability.js";`, and `import type { ReleaseEvaluation } from "./release-evaluator.js";` lines at the top of the file (check first whether any are already imported from Task 1/2's changes before adding a duplicate).
+
+**Why `ReleaseEvaluation` (the core, un-narrowed type) needs importing here:** `ReportService.generate` always passes the real value `evaluateRelease()` returned — the full core `ReleaseEvaluation`, which (per Task 2) still carries `unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified` — not a value already narrowed to `ReleaseEvaluationForReport`. If `buildReport`'s `releaseEvaluation` input parameter were typed as the narrowed `ReleaseEvaluationForReport`, that would be dishonest about what's actually passed at runtime, and — critically — TypeScript's excess-property checking does **not** apply to object-spread expressions. A construction like `{ ...input.releaseEvaluation, controlCoverage: x }` assigned to a `ReleaseEvaluationForReport`-typed `const` would compile cleanly even though the spread silently carries all 3 "removed" fields through into the real runtime object, which then serializes into the actual JSON — completely defeating §3.4/§3.5's removal. Typing the input parameter as the honest, wider `ReleaseEvaluation` and then building the output via **explicit field-by-field projection** (never a spread) is what actually guarantees the 3 fields are dropped.
 
 Widen `ScoreForReport`'s `domainScores` from `unknown[]` to a real type, since rounding needs to touch each domain's `score`/`coveragePercent`. Change:
 
@@ -1256,7 +1386,7 @@ export function buildReport(input: {
   generatedAt: () => string;
   score: ScoreForReport;
   findings: FindingForReport[];
-  releaseEvaluation: ReleaseEvaluationForReport;
+  releaseEvaluation: ReleaseEvaluation;
   summary: string;
 }): ProjectReport {
   const actionable = input.findings.filter((f) => f.status === "open" || f.status === "in_progress");
@@ -1277,9 +1407,21 @@ export function buildReport(input: {
       coveragePercent: roundReportNumber(d.coveragePercent),
     })),
   };
+  // Explicit field-by-field projection — deliberately NOT a spread. input.releaseEvaluation is the
+  // full core ReleaseEvaluation (it always still carries unblockedCriticalAttackPaths/
+  // incidentResponseVerified/backupRestoreVerified, per Task 2/§3.4/§3.5); a spread would silently
+  // carry those 3 fields through into the real JSON despite ReleaseEvaluationForReport's type no
+  // longer declaring them, since TypeScript's excess-property checking does not apply to spreads.
+  // Naming every field explicitly is what actually drops them.
   const roundedReleaseEvaluation: ReleaseEvaluationForReport = {
-    ...input.releaseEvaluation,
+    gate: input.releaseEvaluation.gate,
     controlCoverage: roundReportNumber(input.releaseEvaluation.controlCoverage),
+    confirmedCriticalVulnerabilities: input.releaseEvaluation.confirmedCriticalVulnerabilities,
+    confirmedHighVulnerabilities: input.releaseEvaluation.confirmedHighVulnerabilities,
+    residualRisksAccepted: input.releaseEvaluation.residualRisksAccepted,
+    blockingControlFailures: input.releaseEvaluation.blockingControlFailures,
+    blockingControlsNotVerified: input.releaseEvaluation.blockingControlsNotVerified,
+    result: input.releaseEvaluation.result,
   };
 
   return {
@@ -1433,19 +1575,52 @@ to:
     });
 ```
 
-(No other change is needed in this file — `findings` is already fetched exactly once via the existing `Promise.all([this.repository.getControlAssessments(...), this.repository.getFindings(...), this.repository.getControls()])` call and reused for `normalizedFindingsForScore`, `normalizedFindingsForRelease`, and this `buildReport` call.)
+(No other change is needed in this file — `findings` is already fetched exactly once via the existing `Promise.all([this.repository.getControlAssessments(...), this.repository.getFindings(...), this.repository.getControls()])` call and reused for `normalizedFindingsForScore`, `normalizedFindingsForRelease`, and this `buildReport` call. The `releaseEvaluation` variable passed here is already declared `let releaseEvaluation: ReleaseEvaluation;` in this file's existing code — `buildReport`'s widened input type from Step 7 above matches what this call site already passes with no further edit needed here.)
 
 - [ ] **Step 13: Run to verify it passes**
 
 Run: `npx vitest run tests/service/report-service.test.ts`
 Expected: PASS, every test in the file.
 
-- [ ] **Step 14: Write the failing old-report-compatibility (hash-preservation) test**
+- [ ] **Step 14: Write the failing old-report-compatibility (hash-preservation) test, exercised through the real `ReportService.generate()` path**
 
-Add this `describe` block to `tests/core/repository.test.ts`, inside or near the existing `"JsonRepository — project-instance read/write (temp data/ tree)"` describe block's file (it can be its own top-level `describe` in the same file, using the same `mkdtempSync`/`rmSync` pattern):
+The spec's acceptance criterion is specifically "a new report generated through the **normal generation path** doesn't touch an existing legacy report" — a test that calls `repo.saveReport(newReport)` directly only proves `saveReport` itself doesn't collide on filenames (true by construction, since it always writes to `reports/<reportId>.json`), not that `ReportService.generate()` as a whole never reads or rewrites existing reports. This test must go through `ReportService.generate()` for real.
+
+Add this `describe` block to `tests/core/repository.test.ts`. It needs a real, generatable project (controls, a run, assessments for every `RELEASE_BLOCKING_CONTROLS` entry) backed by a `JsonRepository` whose project-instance tree is a temp directory but whose catalog/core reads (`getControls`, `getScoreModel`, `getCriticalityFormula`, `getCatalogVersion`) come from the real `data/` tree — the same `mixedRepository`-style split already established in `tests/integration/full-workflow.test.ts`:
 
 ```ts
-describe("JsonRepository — old ProjectReport files are never touched by new-report generation", () => {
+import { ReportService } from "../../src/service/report-service.js";
+import { RELEASE_BLOCKING_CONTROLS } from "../../src/core/release-evaluator.js";
+
+function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepository): SecurityRepository {
+  return {
+    getProject: projectRepo.getProject.bind(projectRepo),
+    getControls: catalogRepo.getControls.bind(catalogRepo),
+    getThreats: catalogRepo.getThreats.bind(catalogRepo),
+    getCriticalityFormula: catalogRepo.getCriticalityFormula.bind(catalogRepo),
+    getScoreModel: catalogRepo.getScoreModel.bind(catalogRepo),
+    getReleaseGates: catalogRepo.getReleaseGates.bind(catalogRepo),
+    getPlan: projectRepo.getPlan.bind(projectRepo),
+    getCatalogVersion: catalogRepo.getCatalogVersion.bind(catalogRepo),
+    getControlAssessments: projectRepo.getControlAssessments.bind(projectRepo),
+    getFindings: projectRepo.getFindings.bind(projectRepo),
+    getEvidence: projectRepo.getEvidence.bind(projectRepo),
+    getRiskAcceptances: projectRepo.getRiskAcceptances.bind(projectRepo),
+    getRun: projectRepo.getRun.bind(projectRepo),
+    saveRun: projectRepo.saveRun.bind(projectRepo),
+    saveBatch: projectRepo.saveBatch.bind(projectRepo),
+    saveReport: projectRepo.saveReport.bind(projectRepo),
+    savePlan: projectRepo.savePlan.bind(projectRepo),
+    saveProject: projectRepo.saveProject.bind(projectRepo),
+    saveControlAssessment: projectRepo.saveControlAssessment.bind(projectRepo),
+    saveFinding: projectRepo.saveFinding.bind(projectRepo),
+    saveEvidence: projectRepo.saveEvidence.bind(projectRepo),
+    saveRiskAcceptance: projectRepo.saveRiskAcceptance.bind(projectRepo),
+  };
+}
+
+describe("JsonRepository — old ProjectReport files are never touched by ReportService.generate()'s normal path", () => {
+  const NOW = "2026-10-06T00:00:00.000Z";
   let dir: string;
   let repo: JsonRepository;
 
@@ -1458,7 +1633,7 @@ describe("JsonRepository — old ProjectReport files are never touched by new-re
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("a legacy-shaped report on disk is byte-for-byte unchanged after a new report is generated and saved for the same project", async () => {
+  it("a legacy-shaped report on disk is byte-for-byte unchanged after ReportService.generate() creates a new report for the same project", async () => {
     const legacyReportPath = join(dir, "projects", "PRJ-1", "reports", "REP-LEGACY.json");
     mkdirSync(join(dir, "projects", "PRJ-1", "reports"), { recursive: true });
     const legacyReport = {
@@ -1472,20 +1647,32 @@ describe("JsonRepository — old ProjectReport files are never touched by new-re
     writeFileSync(legacyReportPath, JSON.stringify(legacyReport, null, 2));
     const before = readFileSyncUtf8(legacyReportPath);
 
-    const newReport = {
-      reportId: "REP-NEW", projectId: "PRJ-1", assessmentRunId: "RUN-NEW", catalogVersion: "1.0.0", profileRevision: 1,
-      criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" }, generatedAt: "2026-10-06T00:00:00.000Z",
-      score: { overallScore: 90, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 }, scoreModel: { id: "M", version: "1" }, domainScores: [] },
-      prioritizedFindings: [], projectFindingSnapshots: [],
-      releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" as const },
-      target: null, profileSnapshot: null, engineVersionAtRunStart: null, reportSchemaVersion: "2.0.0",
-      summary: "a fresh 2.0.0 report for the same project",
-    } satisfies ProjectReport;
-    await repo.saveReport(newReport);
+    const realCatalog = new JsonRepository("data");
+    const mixed = mixedRepository(repo, realCatalog);
+    await repo.saveProject({
+      projectId: "PRJ-1", name: "Demo", owner: "alice", createdAt: NOW, profileRevision: 1,
+      profile: { securityLevel: "SVL-3", exposure: ["internet_public"], features: {}, technologies: {} },
+    });
+    await repo.saveRun({
+      runId: "RUN-NEW", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: (await realCatalog.getCatalogVersion()), batchIds: [], status: "running", startedAt: NOW, completedAt: null,
+    });
+    const blockingControls = [...RELEASE_BLOCKING_CONTROLS];
+    for (let i = 0; i < blockingControls.length; i++) {
+      await repo.saveControlAssessment({
+        assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,
+        runId: "RUN-NEW", profileRevision: 1,
+        applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+        status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: NOW, nextReviewAt: null, notes: null,
+      });
+    }
+    const reportService = new ReportService(mixed, () => NOW);
+    const newReport = await reportService.generate({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh 2.0.0 report for the same project" });
 
     const after = readFileSyncUtf8(legacyReportPath);
     expect(after).toBe(before);
-    const newReportOnDisk = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "reports", "REP-NEW.json")));
+    expect(newReport.reportSchemaVersion).toBe("2.0.0");
+    const newReportOnDisk = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "reports", `${newReport.reportId}.json`)));
     expect(newReportOnDisk.reportSchemaVersion).toBe("2.0.0");
   });
 });
@@ -1494,7 +1681,7 @@ describe("JsonRepository — old ProjectReport files are never touched by new-re
 - [ ] **Step 15: Run to verify it passes**
 
 Run: `npx vitest run tests/core/repository.test.ts`
-Expected: PASS — `saveReport` only ever writes to `reports/<reportId>.json`, so a pre-existing, differently-named legacy report file is never touched (this test should pass on the first try; its purpose is to pin the invariant with a direct, concrete assertion, not to drive new implementation work).
+Expected: PASS. `ReportService.generate()` only ever calls `saveReport`, which only ever writes `reports/<reportId>.json` for the `reportId` it generates — a pre-existing, differently-named legacy report file is never read or touched anywhere along that path. This test should pass on the first try; its purpose is to pin the invariant with a direct, concrete, full-path assertion, not to drive new implementation work.
 
 - [ ] **Step 16: Update `project-report-schema.json` for the final shape, write the failing schema tests**
 
@@ -1549,6 +1736,7 @@ In `data/schemas/project-report-schema.json`:
 
 ```json
     "target": {
+      "description": "Caller-asserted assessment target provenance, declared at start_assessment_run time; not independently verified by this server.",
       "type": ["object", "null"],
       "properties": {
         "repository": { "type": "string", "minLength": 1 },
@@ -1561,7 +1749,7 @@ In `data/schemas/project-report-schema.json`:
     },
     "profileSnapshot": { "type": ["object", "null"] },
     "engineVersionAtRunStart": { "type": ["string", "null"] },
-    "reportSchemaVersion": { "type": "string", "minLength": 1 },
+    "reportSchemaVersion": { "const": "2.0.0" },
 ```
 
 4. Add `projectFindingSnapshots`, `target`, `profileSnapshot`, `engineVersionAtRunStart`, `reportSchemaVersion` to the top-level `required` array:
@@ -1599,6 +1787,11 @@ Update `tests/schemas/project-report-schema.test.ts`'s `valid` fixture to the ne
     const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
     const { reportSchemaVersion, ...rest } = valid;
     expect(validate(rest)).toBe(false);
+  });
+
+  it("rejects a report with any reportSchemaVersion other than the current '2.0.0'", () => {
+    const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
+    expect(validate({ ...valid, reportSchemaVersion: "1.0.0" })).toBe(false);
   });
 
   it("accepts target/profileSnapshot/engineVersionAtRunStart as null", () => {
@@ -1668,43 +1861,9 @@ to:
 Run: `npx vitest run tests/schema-drift.test.ts`
 Expected: PASS, every test.
 
-- [ ] **Step 20: Inject the real `engineVersionAtRunStart` value at the composition root (`server.ts`), bump `package.json`'s version**
+(`package.json`'s version bump and `server.ts`'s `engineVersionAtRunStart` wiring already landed in Task 1 Step 12 — Task 1 introduced the required constructor parameter, so it also wired the one real production construction site in the same commit. Nothing left to do here.)
 
-In `package.json`, change `"version": "0.8.0"` to `"version": "0.9.0"`.
-
-In `src/mcp/server.ts`, add these imports at the top:
-
-```ts
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-```
-
-Add this near the top of the file, after the imports, before `export function buildServer`:
-
-```ts
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function readEngineVersion(): string {
-  const packageJsonPath = join(__dirname, "..", "..", "package.json");
-  const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { version: string };
-  return pkg.version;
-}
-```
-
-Change the `AssessmentService` construction line inside `buildServer` from:
-
-```ts
-  const assessmentService = new AssessmentService(repository);
-```
-
-to:
-
-```ts
-  const assessmentService = new AssessmentService(repository, undefined, readEngineVersion());
-```
-
-- [ ] **Step 21: Typecheck and run the full suite**
+- [ ] **Step 20: Typecheck and run the full suite**
 
 Run: `npx tsc --noEmit`
 Expected: clean.
@@ -1712,20 +1871,10 @@ Expected: clean.
 Run: `npx vitest run`
 Expected: PASS, every test file.
 
-- [ ] **Step 22: Manually verify `start_assessment_run` now captures the real package version end-to-end**
-
-Run: `node --experimental-strip-types -e "
-import { buildServer } from './src/mcp/server.ts';
-const server = buildServer();
-console.log('server built OK');
-"`
-
-Expected: prints `server built OK` with no error (confirms `readEngineVersion()` resolves `package.json`'s real path correctly from `src/mcp/server.ts`'s location — if this throws an `ENOENT`, the relative path in `readEngineVersion` needs adjusting). If `--experimental-strip-types` isn't available in the installed Node version, instead run `npx tsx -e "import('./src/mcp/server.ts').then(m => { m.buildServer(); console.log('server built OK'); })"`.
-
-- [ ] **Step 23: Commit**
+- [ ] **Step 21: Commit**
 
 ```bash
-git add src/core/report-builder.ts src/service/report-service.ts src/mcp/server.ts package.json \
+git add src/core/report-builder.ts src/service/report-service.ts \
   data/schemas/project-report-schema.json \
   tests/core/report-builder.test.ts tests/service/report-service.test.ts tests/core/repository.test.ts \
   tests/schemas/project-report-schema.test.ts tests/schema-drift.test.ts
@@ -1743,8 +1892,7 @@ ReleaseEvaluation keeps all three unchanged); a new roundReportNumber
 helper rounds display numbers to 2 decimals at the report-serialization
 boundary only, never before a gate-threshold comparison; reportSchemaVersion
 '2.0.0' marks the new shape, with old on-disk reports left permanently
-untouched. package.json bumped to 0.9.0 so engineVersionAtRunStart means
-something starting from this release.
+untouched.
 
 See docs/superpowers/specs/2026-10-06-report-fidelity-design.md"
 ```
