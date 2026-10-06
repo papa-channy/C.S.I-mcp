@@ -5,7 +5,8 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "npm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/mcp/server.js"
   },

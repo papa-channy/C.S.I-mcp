@@ -35,14 +35,15 @@ function readEngineVersion(): string {
 }
 
 export function buildServer(dataDir = "data"): McpServer {
+  const engineVersion = readEngineVersion();
   const repository = new JsonRepository(dataDir);
   const projectService = new ProjectService(repository);
-  const assessmentService = new AssessmentService(repository, undefined, readEngineVersion());
+  const assessmentService = new AssessmentService(repository, undefined, engineVersion);
   const analysisService = new AnalysisService(repository);
   const reportService = new ReportService(repository);
   const riskAcceptanceService = new RiskAcceptanceService(repository);
 
-  const server = new McpServer({ name: "csi-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "csi-mcp", version: engineVersion });
 
   registerCreateProjectTool(server, projectService);
   registerGetProjectTool(server, projectService);
