@@ -1,0 +1,65 @@
+# ADR 0001: Report Fidelity — Provenance Capture and Output Projection
+
+**Status:** Accepted (implemented on branch `worktree-report-fidelity`, commits `068699c`..`1f08816`)
+
+**Spec:** `docs/superpowers/specs/2026-10-06-report-fidelity-design.md`
+**Plan:** `docs/superpowers/plans/2026-10-06-report-fidelity-implementation.md`
+
+## Context
+
+`ProjectReport`, the persisted JSON artifact produced by `generate_report`, discarded most of the engine's own judgment on the way into the artifact: `prioritizedFindings` carried four fields when `Finding` carries ten; two numeric fields named identically across two files (`score.ts`'s `highFindings` and `release-evaluator.ts`'s `highFindings`) meant different things with no way to tell from the JSON alone; nothing recorded what code, profile, or engine version produced a given report; three report fields (`unblockedCriticalAttackPaths`, `incidentResponseVerified`, `backupRestoreVerified`) were either structurally always-zero or silently collapsed real distinctions (`PASS` vs. `ACCEPTED_RISK` vs. `NOT_TESTED`) into one boolean. This was discovered by generating and reading real reports for all 8 open-source validation projects after the `assessment-trust-integrity` branch landed — the engine's verdicts were correct, but the report describing them wasn't trustworthy as a standalone artifact.
+
+This ADR records the decisions made to fix this — not the full rationale (the spec has that, including three external review rounds) — but the decisions themselves, why each was made the way it was, and what it costs if wrong.
+
+## Decisions
+
+### 1. Provenance lives on `AssessmentRun`, captured once at run-start — never re-read at report-generation time
+
+`target` (repository/commit, caller-asserted), `profileSnapshot` (a deep copy of `Project.profile`), and `engineVersionAtRunStart` (the installed package version) are all captured once when `start_assessment_run` executes and stored on the `AssessmentRun`. `ReportBuilder` only ever copies these forward from the run that produced the report — it never reads current `Project` state or `package.json` when a report is generated, because both can have moved on since the run that actually did the assessment work.
+
+**Why:** a report describes the run it came from, not whatever the system happens to look like when someone later calls `generate_report`. The staleness problem this solves is the same one `assessment-trust-integrity` fixed for `ControlAssessment.profileRevision` — provenance that's read fresh at read-time, rather than sealed at write-time, lies about what actually happened.
+
+**Cost if wrong:** if a future change moves any of these three fields back to being read fresh at generation time, a report generated long after a run completed (e.g., after an engine upgrade or a profile edit) would misattribute its findings to the wrong engine version or profile. The three invariant tests added in Task 1/3 (`tests/service/assessment-service.test.ts`, `tests/core/report-builder.test.ts`) exist specifically to catch this regression.
+
+### 2. `AssessmentRun`'s new fields are optional-and-nullable; `ProjectReport`'s mirrors are required-but-nullable
+
+`AssessmentRun.target?: Target | null` (and the other two) use TypeScript's optional-and-nullable form — not `Target | null` alone — specifically so a legacy `AssessmentRun` persisted before this change, which has none of these three keys at all, is a valid value of the type with zero migration step. `ProjectReport`'s mirror fields are `Target | null` (required-but-nullable, no `?`) because `ReportBuilder` always constructs a fresh object and always sets an explicit value — there's no "missing key" case to represent on the output side.
+
+**Why:** these are different contracts for different reasons. The optional-and-nullable split on `AssessmentRun` encodes two distinct facts that a single `| null` type can't distinguish: "this key is absent because it predates provenance capture" (optional) vs. "this run's caller declared no target" (present, null). Collapsing them would either break legacy data or make a deliberate non-declaration indistinguishable from a data-model gap.
+
+**Cost if wrong:** getting this backwards on `AssessmentRun` (making it required-but-nullable) would mean every pre-existing real `AssessmentRun` on disk — all 8 validation projects' actual run data — fails schema validation the moment this change ships, since none of them have these keys. This was caught and fixed during the plan's own external review (round 2) before implementation started, not discovered in code.
+
+### 3. No migration script backfills the new `AssessmentRun` fields
+
+`target`/`profileSnapshot`/`engineVersionAtRunStart` are never backfilled onto existing runs. `target` could technically be backfilled to `null` (that's already its meaning for a run that never declared one), but `profileSnapshot` cannot be honestly reconstructed — there is no record of what a project's profile actually was at a past `startedAt` once it has since changed, and fabricating one would be worse than leaving it absent.
+
+**Cost if wrong:** none of the 8 real validation projects' existing reports gain full provenance until they're re-run under a fresh `AssessmentRun`. This is a known, accepted gap — the spec explicitly scopes "regenerate reports from existing data" as a separate, later pipeline step, not part of this change.
+
+### 4. `buildReport`'s `releaseEvaluation` input is typed as the full core `ReleaseEvaluation`, not the narrowed `ReleaseEvaluationForReport` — and the output is built via explicit field-by-field projection, never a spread
+
+This is the single most consequential implementation-level decision in this change, and it was not in the spec's original design — it was found during the plan's own external review, after the spec had already specified "drop 3 fields from the report." The naive implementation (`{...input.releaseEvaluation, controlCoverage: rounded}` typed as `ReleaseEvaluationForReport`) looks correct and type-checks, but is a real bug: `ReportService.generate()` always passes the actual value `evaluateRelease()` returned, which still has the 3 "dropped" fields at runtime regardless of what TypeScript's static type claims — and TypeScript's excess-property checking does not apply to spread expressions, only to object literals assigned directly. The spread would have silently serialized all 3 fields into the real JSON, completely defeating the removal.
+
+The fix: type `buildReport`'s input parameter as the honest, wider `ReleaseEvaluation` (what's actually passed), and construct the narrowed output by naming all 8 wanted fields explicitly. An object literal with named fields, assigned to a typed `const`, *does* get excess-property checking — so this construction is actually type-safe in a way the spread never was.
+
+**Why this matters beyond the one bug:** it's a general pattern this codebase should carry forward — wherever a report-layer type is a deliberate subset of a core-engine type, the mapping step must use explicit projection, not a spread, or the subset relationship is unenforced at exactly the moment it matters. The final whole-branch review flagged one remaining instance of the same shape risk (`roundedScore`'s spread in `buildReport`, copying `Score`/`DomainScore` into `ScoreForReport`/`DomainScoreForReport`) as currently safe only because those types happen to be field-for-field identical today — see "Known residual risk" below.
+
+**Cost if wrong:** a silent data leak — fields the design explicitly decided were misleading or dead (`unblockedCriticalAttackPaths` always reads 0; `incidentResponseVerified`/`backupRestoreVerified` silently collapse `ACCEPTED_RISK` into `false`) would reappear in every generated report with no error anywhere, caught only by manually inspecting output JSON. Task 3's test suite asserts key-absence directly (`"unblockedCriticalAttackPaths" in report.releaseEvaluation === false`) specifically because a value-equality assertion against a fixture would not have caught the original spread bug.
+
+### 5. `engineVersionAtRunStart` is a required (non-defaulted) `AssessmentService` constructor parameter
+
+Also found during the plan's external review, not in the original spec. The original design gave this parameter a `string | null = null` default, matching the existing `now` parameter's pattern. The problem: a silent default makes it trivially easy for a future call site (or future refactor) to construct a production `AssessmentService` without ever being told it forgot to wire the real engine version — the whole system keeps working, just with every new run's provenance silently degraded to `null` forever, with no compiler error and no test failure (unless a test specifically asserts the value is non-null, which nothing would prompt someone to add).
+
+Making it required with no default means every construction site must make an explicit choice. This had a real, measurable cost: ~52 pre-existing test call sites across 3 test files needed a literal third argument added in a dedicated mechanical-sweep step (Task 1, Step 10), and the one production call site (`src/mcp/server.ts`) needed to be wired in the same commit that introduced the requirement, rather than left to a later task.
+
+**Cost if wrong:** reverting this to an optional/defaulted parameter would be a one-line, low-risk change — but it would reopen exactly the silent-degradation failure mode this decision exists to close. If this is ever reconsidered, it should be a deliberate decision with the same scrutiny, not a convenience fix made in passing.
+
+## Known residual risks (deliberately not fixed in this change)
+
+Surfaced by the final whole-branch review, triaged, and explicitly deferred rather than silently dropped:
+
+- **`roundedScore`'s spread in `report-builder.ts`** carries the same theoretical leak shape as decision #4 above, but is safe today because `Score`/`DomainScore` (core) and `ScoreForReport`/`DomainScoreForReport` (report) are structurally identical field-for-field — there's nothing to leak. If a field is ever added to `Score`/`DomainScore` without a corresponding report-layer decision, it would flow into the persisted report silently; `project-report-schema.json`'s `additionalProperties: false` plus the integration test that schema-validates a real generated report would catch this at test time, not compile time, but it would be caught.
+- **`run.target`/`run.profileSnapshot` are assigned by reference in `buildReport`**, inconsistent with `projectFindingSnapshots`' deliberate defensive copy of `controlIds`. Harmless with the real `JsonRepository` (every read is a fresh `JSON.parse`), a real hazard only with an in-memory repository implementation that shares object references across calls — none exists in production today.
+- **No CHANGELOG-tracked policy decision was made about `data/schemas/release-gates.json`'s `requiresByLevel.criticalFindings`/`highFindings`** beyond "don't touch it" — the final review noted the spec's stated rationale ("coincidentally shares the name") understates the real conceptual overlap (that file's thresholds are a direct transcription of the logic now named `confirmedCriticalVulnerabilities`/`confirmedHighVulnerabilities`). The decision to leave it alone is still correct — nothing in `src/` reads `requiresByLevel` — but the spec's own reasoning for that decision should be corrected in a future pass.
+- **Two spec invariants have no direct test**: a `ProjectReport` with a populated (non-null) `target` validating against the real JSON schema (verified manually during the final review, not locked in by an automated test), and a direct assertion that `prioritizedFindings[*].findingId] ⊆ projectFindingSnapshots[*].findingId` (currently only implied by existing tests, never asserted directly).
+
+None of these were judged load-bearing enough to justify a second fix wave on top of the one dispatched for the final review's Important finding (missing CHANGELOG entry) and three bundled low-risk Minor fixes (stale `McpServer` version string, stale `package-lock.json`, `typecheck` not wired into `npm test`). They're recorded here so a future pass has the full context without re-deriving it.
