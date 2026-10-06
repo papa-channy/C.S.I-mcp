@@ -186,12 +186,17 @@ run-scoped attribution would require adding a run identifier to `Finding`
 (the same shape of fix `ControlAssessment` already got in
 `assessment-trust-integrity`) and is explicitly out of scope here (§7).
 
-`ReportBuilder` must fetch findings exactly once and derive `score`,
-`releaseEvaluation`, `prioritizedFindings`, and `projectFindingSnapshots` all from
-that same fetched array — never a second, independent re-read of
-`findings.json` for `projectFindingSnapshots` specifically — so the four views of
-"what findings exist" in one `ProjectReport` can never drift apart from
-each other even accidentally.
+`ReportService.generate` must obtain exactly one `Finding[]` snapshot
+(a single `repository.getFindings(projectId)` call) and pass that same
+array to `calculateScore`, `evaluateRelease`, and `buildReport` —
+`ReportBuilder` itself performs no repository reads; it is a pure
+function over the `Finding[]` and `AssessmentRun` data its caller
+supplies, and derives `prioritizedFindings` and `projectFindingSnapshots`
+from that one array. Pinning the single-fetch responsibility to
+`ReportService.generate` (not to `ReportBuilder`, which has no repository
+access to begin with) means the four views of "what findings exist" in
+one `ProjectReport` can never drift apart from each other even
+accidentally.
 
 **Invariant:** every `prioritizedFindings[i].findingId` must appear in
 `projectFindingSnapshots` (`prioritizedFindings` is always a subset of
@@ -200,11 +205,14 @@ each other even accidentally.
 in `prioritizedFindings`.
 
 **Ordering:** `projectFindingSnapshots` is sorted ascending by `findingId`
-(a plain string comparison — `findingId`s are sequential, e.g. `FND-001`,
-`FND-002`, so this is also creation order) before being written into the
-report. A fixed, deterministic order means two reports generated from the
-same underlying finding set are byte-identical, and a diff between two
-reports reflects a real change, not array-ordering noise.
+(a plain string comparison) before being written into the report, purely
+for reproducibility — not because `findingId` ordering happens to track
+creation order today (it does, since `findingId`s are sequential, e.g.
+`FND-001`, `FND-002`, but that coincidence isn't what this invariant
+relies on or claims). A fixed, deterministic order means two reports
+generated from the same underlying finding set are byte-identical, and a
+diff between two reports reflects a real change, not array-ordering
+noise.
 
 ### 3.2 Naming: `criticalSeverityFindings`/`highSeverityFindings` vs. `confirmedCriticalVulnerabilities`/`confirmedHighVulnerabilities`
 
@@ -255,7 +263,7 @@ change (the field names in what they return). A consumer of either live
 MCP tool sees the new field names starting with this change, even though
 what gets computed is identical.
 
-### 3.3 `target`, `profileSnapshot`, `engineVersion`: provenance lives on `AssessmentRun`, not the report
+### 3.3 `target`, `profileSnapshot`, `engineVersionAtRunStart`: provenance lives on `AssessmentRun`, not the report
 
 Three new fields are added to `AssessmentRun`, each captured **by value** at
 `start_assessment_run` time — not re-read from live `Project`/`package.json`
@@ -279,7 +287,7 @@ export interface AssessmentRun {
   // ...existing fields...
   target?: Target | null;
   profileSnapshot?: ProjectProfile | null;
-  engineVersion?: string | null;
+  engineVersionAtRunStart?: string | null;
 }
 ```
 
@@ -295,7 +303,7 @@ All three are **optional and nullable** (`?: ... | null`, not `: ... | null`)
   the key. `target` is the field this matters for in practice: a new run
   whose caller doesn't pass a `target` input is a completely normal,
   common case, and its `target` is legitimately `null` — not just on
-  legacy runs. (`profileSnapshot`/`engineVersion` are different: every new
+  legacy runs. (`profileSnapshot`/`engineVersionAtRunStart` are different: every new
   run always gets both from the service itself, never from caller input,
   so in practice they are only ever absent/`null` on a legacy run — but
   the type stays optional-and-nullable for all three uniformly, since
@@ -346,15 +354,25 @@ All three are **optional and nullable** (`?: ... | null`, not `: ... | null`)
   same moment), a report reader can see not just *that* the project was at
   revision 2, but *what* revision 2's profile actually was, without needing
   live access to `data/projects/<id>/project.json`.
-- `engineVersion: string | null` is this package's own `version` field
+- `engineVersionAtRunStart: string | null` is this package's own `version` field
   (`package.json`, currently `"0.8.0"`), captured once when
   `startAssessmentRun` runs and stored on the run — not re-read fresh
   when a report is later generated from that run. This matters for the
-  same reason as `profileSnapshot`: the question this field answers is
-  "what engine version produced this run's judgment," and the run is what
-  actually did the scanning — an engine upgrade between run-start and (a
-  possibly much later) report-generation must not retroactively relabel
+  same reason as `profileSnapshot`: an engine upgrade between run-start and
+  (a possibly much later) report-generation must not retroactively relabel
   an old run's findings as having come from the new version.
+  **The field name says exactly what it captures and no more.** It is
+  deliberately not named `engineVersion`: a persisted `AssessmentRun` can
+  in principle stay open across a server restart, and if that restart
+  upgrades the installed package, later `record_assessment` calls against
+  the same `runId` would execute under a newer engine than the one
+  captured at `start_assessment_run` time — nothing in this spec adds a
+  mechanism to detect or prevent that (see §7). `engineVersionAtRunStart`
+  therefore answers "what engine version was installed when this run
+  began," not an unconditional "what engine version produced this run's
+  judgment" — the two coincide for every run in practice today (runs are
+  short-lived, single-session), but the field name should not claim more
+  than the capture mechanism actually guarantees.
   `AssessmentService` takes the version as an injected constructor
   parameter (default-reading `package.json` itself only at the
   composition root, e.g. `server.ts`, where the service is constructed) —
@@ -362,7 +380,7 @@ All three are **optional and nullable** (`?: ... | null`, not `: ... | null`)
   rather than `startAssessmentRun` reaching for `package.json` directly
   on every call; this keeps the service testable without a real
   `package.json` read, the same way its clock is already injectable.
-  **For `engineVersion` to mean anything, `package.json`'s `version` must
+  **For `engineVersionAtRunStart` to mean anything, `package.json`'s `version` must
   actually change when engine or report-contract semantics change** — this
   spec's own implementation is exactly such a change (new fields, renamed
   fields, new report shape) and must bump the version as part of landing
@@ -376,11 +394,11 @@ All three are **optional and nullable** (`?: ... | null`, not `: ... | null`)
 
 **Legacy `AssessmentRun` compatibility.** Every `AssessmentRun` that exists
 on disk before this change ships has none of `target`/`profileSnapshot`/
-`engineVersion` as keys at all — exactly the case the optional-and-nullable
+`engineVersionAtRunStart` as keys at all — exactly the case the optional-and-nullable
 typing above (not required-but-nullable) exists to accept without any
 normalization step. `target: null`/absent for a legacy run means "not
 declared" (the existing, intentional meaning from before this note).
-`profileSnapshot`/`engineVersion` absent or `null` for a legacy run means
+`profileSnapshot`/`engineVersionAtRunStart` absent or `null` for a legacy run means
 "this run predates provenance capture" — there is no honest backfill for
 either: a project's profile and the installed engine version at some past
 `startedAt` cannot be reliably reconstructed from their current values
@@ -390,18 +408,18 @@ existing `AssessmentRun`s — unlike `scripts/migrate-control-assessment-profile
 real per-assessment join against `AssessmentRun` data, there is no
 analogous source of truth to join against here. A `ProjectReport`
 generated from a legacy run simply carries `target: null`,
-`profileSnapshot: null`, `engineVersion: null` forward — an honest "not
+`profileSnapshot: null`, `engineVersionAtRunStart: null` forward — an honest "not
 captured for this run," not a fabricated value.
 
 `ReportBuilder` does not construct or infer provenance — it copies
-`run.target`, `run.profileSnapshot`, `run.engineVersion`, and the
+`run.target`, `run.profileSnapshot`, `run.engineVersionAtRunStart`, and the
 already-existing `run.profileRevision` verbatim onto `ProjectReport`.
 `ProjectReport` gains:
 
 ```ts
 target: Target | null;
 profileSnapshot: ProjectProfile | null;
-engineVersion: string | null;
+engineVersionAtRunStart: string | null;
 ```
 
 Unlike `AssessmentRun`'s fields (optional-and-nullable, to accept a legacy
@@ -419,7 +437,7 @@ does today.)
 **Invariant:** `ProjectReport.profileRevision === AssessmentRun.profileRevision`,
 `ProjectReport.profileSnapshot` deep-equals `(AssessmentRun.profileSnapshot ?? null)`,
 `ProjectReport.target` deep-equals `(AssessmentRun.target ?? null)`, and
-`ProjectReport.engineVersion === (AssessmentRun.engineVersion ?? null)`, for
+`ProjectReport.engineVersionAtRunStart === (AssessmentRun.engineVersionAtRunStart ?? null)`, for
 the run named by `ProjectReport.assessmentRunId` — `ReportBuilder` must not
 read current `Project` state or `package.json` to populate any of the four.
 
@@ -457,9 +475,14 @@ in that same case. A boolean that silently collapses `FAIL`,
 around invites a reader to treat them as interchangeable when they aren't.
 `blockingControlFailures`/`blockingControlsNotVerified` (unchanged,
 already present) are strictly more informative and remain the report's
-sole source of truth for release-blocking-control status specifically
-(not a claim about the whole report — `projectFindingSnapshots`,
-`score`, etc. are the source of truth for their own respective facts).
+authoritative representation of release-gate *effects* arising from
+release-blocking controls — not a complete picture of every blocking
+control's actual `ControlAssessment.status` (an `ACCEPTED_RISK` control
+is, by design, absent from both arrays, so a reader cannot recover from
+them alone whether a given blocking control is `PASS`, `N/A`, or
+`ACCEPTED_RISK`; only that it isn't currently failing or unverified). Nor
+is this a claim about the whole report — `projectFindingSnapshots`,
+`score`, etc. are the source of truth for their own respective facts.
 
 No further change to core `release-evaluator.ts`'s `ReleaseEvaluation`
 interface beyond §3.2's rename — the two booleans themselves stay there
@@ -524,19 +547,19 @@ bug.
 
 ### 3.7 `reportSchemaVersion`
 
-(`engineVersion` moved to §3.3 — it's captured on `AssessmentRun` at
+(`engineVersionAtRunStart` moved to §3.3 — it's captured on `AssessmentRun` at
 run-start time, for the same reason `target`/`profileSnapshot` are, not
 freshly read at report-generation time.)
 
 One more new top-level `ProjectReport` field: `reportSchemaVersion: string`
 — a version string for the `ProjectReport` *shape* itself, starting at
-`"2.0.0"` for this change (distinct from `engineVersion`: the report shape
+`"2.0.0"` for this change (distinct from `engineVersionAtRunStart`: the report shape
 can change independently of the engine's judgment logic — a future spec
 could add another report field without touching `score.ts`/
 `release-evaluator.ts` at all, and that would bump `reportSchemaVersion`
 alone). This directly addresses why three of the eight re-assessed
 projects — different Chatwoot runs (`v1`/`v2`/`v3`) — produced different
-results against the same `catalogVersion`: `engineVersion` (§3.3)
+results against the same `catalogVersion`: `engineVersionAtRunStart` (§3.3)
 attributes that to code differences, `reportSchemaVersion` attributes any
 future differences in the *report's own shape* to a shape change rather
 than a judgment change.
@@ -554,11 +577,11 @@ never rewritten after creation). Only newly-generated reports carry
 
 - `src/core/repository.ts`:
   - New `Target` interface: `{ repository: string; commitSha: string | null; branchOrTag: string | null; dirty: boolean | null }`.
-  - `AssessmentRun` gains `target?: Target | null`, `profileSnapshot?: ProjectProfile | null`, and `engineVersion?: string | null` — all three **optional and nullable** (§3.3), so a legacy record missing the keys entirely is a valid value with no normalization step, while a new run can still explicitly record `target: null` (caller declined to declare it).
+  - `AssessmentRun` gains `target?: Target | null`, `profileSnapshot?: ProjectProfile | null`, and `engineVersionAtRunStart?: string | null` — all three **optional and nullable** (§3.3), so a legacy record missing the keys entirely is a valid value with no normalization step, while a new run can still explicitly record `target: null` (caller declined to declare it).
 - `src/service/assessment-service.ts`:
-  - `AssessmentService`'s constructor gains an injected `engineVersion: string` parameter (same pattern as its existing injectable `now`), defaulted at the composition root (`server.ts`) by reading `package.json`'s `version` once — not read inline inside `startAssessmentRun` on every call.
-  - `StartAssessmentRunResult`/`startAssessmentRun` input gains an optional `target` parameter: `target?: { repository: string; commitSha: string | null; branchOrTag: string | null; dirty: boolean | null }` (§3.3 — the parameter is optional; `repository` is required within it if present). The service deep-copies `project.profile` into the new run's `profileSnapshot`, stores its injected `engineVersion`, and stores the declared (or `null`) `target`.
-- `src/mcp/tools/start-assessment-run.ts`: input schema gains the optional `target` object (zod), `repository` required within it. No new input for `profileSnapshot`/`engineVersion` — both are always server-derived, never caller-supplied.
+  - `AssessmentService`'s constructor gains an injected `engineVersionAtRunStart: string` parameter (same pattern as its existing injectable `now`), defaulted at the composition root (`server.ts`) by reading `package.json`'s `version` once — not read inline inside `startAssessmentRun` on every call.
+  - `StartAssessmentRunResult`/`startAssessmentRun` input gains an optional `target` parameter: `target?: { repository: string; commitSha: string | null; branchOrTag: string | null; dirty: boolean | null }` (§3.3 — the parameter is optional; `repository` is required within it if present). The service deep-copies `project.profile` into the new run's `profileSnapshot`, stores its injected `engineVersionAtRunStart`, and stores the declared (or `null`) `target`.
+- `src/mcp/tools/start-assessment-run.ts`: input schema gains the optional `target` object (zod), `repository` required within it. No new input for `profileSnapshot`/`engineVersionAtRunStart` — both are always server-derived, never caller-supplied.
 - `src/core/score.ts`: `DomainScore.criticalFindings`/`highFindings` renamed to `criticalSeverityFindings`/`highSeverityFindings`. Calculation logic unchanged — `calculateScore`'s output *contract* (field names) changes, its computation does not (§3.2's precision note).
 - `src/core/release-evaluator.ts`: `ReleaseEvaluation.criticalFindings`/`highFindings` renamed to `confirmedCriticalVulnerabilities`/`confirmedHighVulnerabilities`. Calculation logic unchanged, output contract renamed — same precision note. `unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified` **remain** on this core interface, unrenamed and unremoved (§3.4, §3.5 only remove them from the report, not from core); the attack-path logic and the `unblockedCriticalAttackPaths` field's own computation are untouched by this spec — only the unrelated §3.2 finding-count rename applies to this file.
 - `src/core/report-builder.ts`:
@@ -566,13 +589,13 @@ never rewritten after creation). Only newly-generated reports carry
   - New `FindingSnapshot` interface (§3.1) and a `buildProjectFindingSnapshots` step (sorted ascending by `findingId`, §3.1's ordering invariant) alongside the existing `sortPrioritizedFindings`, both derived from the same single findings fetch `buildReport`'s caller already passes in — no second independent read.
   - `ScoreForReport.domainScores` items reflect the §3.2 domain rename.
   - `ReleaseEvaluationForReport` reflects the §3.2 release rename, and drops `unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified` (§3.4, §3.5).
-  - `ProjectReport` gains `projectFindingSnapshots: FindingSnapshot[]`, `target: Target | null`, `profileSnapshot: ProjectProfile | null`, `engineVersion: string | null`, `reportSchemaVersion: string` — all four non-`projectFindingSnapshots` fields required-but-nullable (not optional) on `ProjectReport` specifically, since `ReportBuilder` always constructs them fresh (§3.3's `ProjectReport` vs. `AssessmentRun` nullability distinction).
+  - `ProjectReport` gains `projectFindingSnapshots: FindingSnapshot[]`, `target: Target | null`, `profileSnapshot: ProjectProfile | null`, `engineVersionAtRunStart: string | null`, `reportSchemaVersion: string` — all four non-`projectFindingSnapshots` fields required-but-nullable (not optional) on `ProjectReport` specifically, since `ReportBuilder` always constructs them fresh (§3.3's `ProjectReport` vs. `AssessmentRun` nullability distinction).
   - New `roundReportNumber` helper (§3.6, with the non-finite-input guard), applied to all percentage/score fields during construction.
-  - `buildReport`'s input gains `run: { ...existing, target, profileSnapshot, engineVersion }` (no separate `engineVersion` parameter — it comes from the run, not freshly read).
-- `src/service/report-service.ts`: `generate` passes `run.target ?? null`/`run.profileSnapshot ?? null`/`run.engineVersion ?? null` through to `buildReport` — does **not** read `package.json` itself (that only happens once, via injection, in `AssessmentService`, per §3.3).
-- `data/schemas/score-schema.json`, `data/schemas/release-evaluation-schema.json`, `data/schemas/project-report-schema.json`, `data/schemas/assessment-run-schema.json`: updated to match (new/renamed/removed fields; `target`/`profileSnapshot`/`engineVersion` all optional on `assessment-run-schema.json` per §3.3 — absent from `required`, not merely typed nullable; `additionalProperties: false` preserved throughout).
+  - `buildReport`'s input gains `run: { ...existing, target, profileSnapshot, engineVersionAtRunStart }` (no separate `engineVersionAtRunStart` parameter — it comes from the run, not freshly read).
+- `src/service/report-service.ts`: `generate` passes `run.target ?? null`/`run.profileSnapshot ?? null`/`run.engineVersionAtRunStart ?? null` through to `buildReport` — does **not** read `package.json` itself (that only happens once, via injection, in `AssessmentService`, per §3.3).
+- `data/schemas/score-schema.json`, `data/schemas/release-evaluation-schema.json`, `data/schemas/project-report-schema.json`, `data/schemas/assessment-run-schema.json`: updated to match (new/renamed/removed fields; `target`/`profileSnapshot`/`engineVersionAtRunStart` all optional on `assessment-run-schema.json` per §3.3 — absent from `required`, not merely typed nullable; `additionalProperties: false` preserved throughout).
 - No changes to `get_score`'s or `evaluate_release`'s calculation logic, `src/core/score.ts`'s `calculateScore` signature, or `src/core/release-evaluator.ts`'s `evaluateRelease` signature — both tools' **output field names** do change via §3.2's rename, which is a contract change, not a behavior change (§3.2's precision note).
-- **Versioning:** this change's own PR/commit bumps `package.json`'s `version` (per the project's existing versioning policy) — required for `engineVersion` to be meaningful starting from the first run created after this change ships (§3.3).
+- **Versioning:** this change's own PR/commit bumps `package.json`'s `version` (per the project's existing versioning policy) — required for `engineVersionAtRunStart` to be meaningful starting from the first run created after this change ships (§3.3).
 
 ## 5. Testing Strategy
 
@@ -580,10 +603,10 @@ never rewritten after creation). Only newly-generated reports carry
 - **`projectFindingSnapshots` is project-scoped, not run-scoped (the §3.1 limitation, made explicit):** a project with **two** `AssessmentRun`s and findings recorded under each — generate a `ProjectReport` for the *earlier* run and assert `projectFindingSnapshots` still includes the findings associated with the *later* run too (proving the field is project-wide as documented, not silently and incorrectly filtered to one run — the point of this test is to pin the documented limitation so a future change can't accidentally "fix" it into a false promise of run-scoping without updating §3.1 and this test together).
 - **Single findings fetch:** assert (e.g. via a repository call-count check in the test double) that generating a report calls `getFindings`/equivalent exactly once — `score`, `releaseEvaluation`, `prioritizedFindings`, and `projectFindingSnapshots` are all derived from that one fetched array, never a second independent read.
 - **Renamed field semantics (not just names):** for `criticalSeverityFindings`, a fixture with an active `hardening`-type finding at `severity: "critical"` — assert it counts. For `confirmedCriticalVulnerabilities`, the identical fixture — assert it does **not** count (only `confirmed_vulnerability`-type counts). Mirror for the `high` pair. This directly tests the distinction the old shared name obscured.
-- **`target`/`profileSnapshot`/`engineVersion` snapshot fidelity:** `start_assessment_run` with a declared `target` and a project profile at a given revision, constructing `AssessmentService` with `engineVersion: "0.8.0"`; mutate the live `Project.profile` afterward (simulating `update_project_profile`), then construct a second `AssessmentService`/`ReportService` pair with `engineVersion: "0.9.0"` injected (simulating an upgrade before report generation); generate a report from the *original* run and assert `ProjectReport.target`/`profileSnapshot`/`profileRevision`/`engineVersion` all match the **run's** captured values (`engineVersion === "0.8.0"`), not the now-mutated live project or the newer injected version. A sibling test omits `target` entirely from `startAssessmentRun`'s input and asserts `ProjectReport.target === null` while `profileSnapshot`/`engineVersion` are still populated (proving `target`'s null-ability is independent of the other two).
+- **`target`/`profileSnapshot`/`engineVersionAtRunStart` snapshot fidelity:** `start_assessment_run` with a declared `target` and a project profile at a given revision, constructing `AssessmentService` with `engineVersionAtRunStart: "0.8.0"`; mutate the live `Project.profile` afterward (simulating `update_project_profile`), then construct a second `AssessmentService`/`ReportService` pair with `engineVersionAtRunStart: "0.9.0"` injected (simulating an upgrade before report generation); generate a report from the *original* run and assert `ProjectReport.target`/`profileSnapshot`/`profileRevision`/`engineVersionAtRunStart` all match the **run's** captured values (`engineVersionAtRunStart === "0.8.0"`), not the now-mutated live project or the newer injected version. A sibling test omits `target` entirely from `startAssessmentRun`'s input and asserts `ProjectReport.target === null` while `profileSnapshot`/`engineVersionAtRunStart` are still populated (proving `target`'s null-ability is independent of the other two).
 - **`profileSnapshot` is a real deep copy:** mutate the object passed as `project.profile` after `startAssessmentRun` returns and assert the stored `AssessmentRun.profileSnapshot` is unaffected (no shared reference).
 - **`target` input validation:** `start_assessment_run` with `target: {}` (no `repository`) is rejected; `target` omitted entirely succeeds with `target: null` stored (§3.3's object-optional/repository-required-if-present distinction).
-- **Legacy `AssessmentRun` compatibility:** a fixture `AssessmentRun` object with the `target`/`profileSnapshot`/`engineVersion` keys entirely absent (not merely `null` — a real stand-in for a pre-this-change persisted record) — assert it still validates against the updated `assessment-run-schema.json` (all three absent from `required`, genuinely optional) and that generating a `ProjectReport` from it produces `target: null`, `profileSnapshot: null`, `engineVersion: null` rather than throwing or fabricating a value. A sibling test does the same key-level assertion directly against the TypeScript type (a legacy-shaped object literal with the three keys omitted type-checks as a valid `AssessmentRun`).
+- **Legacy `AssessmentRun` compatibility:** a fixture `AssessmentRun` object with the `target`/`profileSnapshot`/`engineVersionAtRunStart` keys entirely absent (not merely `null` — a real stand-in for a pre-this-change persisted record) — assert it still validates against the updated `assessment-run-schema.json` (all three absent from `required`, genuinely optional) and that generating a `ProjectReport` from it produces `target: null`, `profileSnapshot: null`, `engineVersionAtRunStart: null` rather than throwing or fabricating a value. A sibling test does the same key-level assertion directly against the TypeScript type (a legacy-shaped object literal with the three keys omitted type-checks as a valid `AssessmentRun`).
 - **`unblockedCriticalAttackPaths`/`incidentResponseVerified`/`backupRestoreVerified` absence:** assert `ProjectReport`/`ReleaseEvaluationForReport` has none of the three keys (schema `additionalProperties: false` plus a direct key-absence assertion), while a sibling test confirms core `evaluateRelease`'s own return value (outside the report path) still has all three, unchanged — proving this is a report-layer-only removal.
 - **Rounding does not affect gate decisions:** a **synthetic** `Score` fixture (not derived from the real ~48-control catalog, which is too coarse-grained to naturally land on an edge case like `79.995`) engineered so raw `coveragePercent` is just under 80 — assert the **unrounded** value is what `evaluateRelease`'s `coverageOk` comparison uses (result stays `indeterminate`/`blocked`, not `approved`), while the **report's** `controlCoverage` is the rounded `80.0` (or correctly rounds to a value still `< 80` — whichever the fixture's exact math produces) — the point being gate logic and report display never share a rounding step.
 - **`-0` normalization:** a `roundReportNumber` unit test asserting `roundReportNumber(-0.001)` (or any input that rounds to negative zero) returns `0`, not `-0` (`Object.is` check).
@@ -613,7 +636,7 @@ server-verified, must be stated explicitly in schema/docs wording; found a
 real (not just stylistic) problem with keeping
 `incidentResponseVerified`/`backupRestoreVerified` — the `ACCEPTED_RISK`
 case diverges from `blockingControlsNotVerified`, so the two views are not
-actually interchangeable; proposed `reportSchemaVersion`/`engineVersion`/
+actually interchangeable; proposed `reportSchemaVersion`/`engineVersionAtRunStart`/
 `profileSnapshot` as three additions beyond the original six sections,
 reasoning that identical `catalogVersion` across Chatwoot v1/v2/v3 produced
 different results for reasons a report reader can't otherwise attribute.
@@ -645,12 +668,12 @@ true in general, since `Finding` carries no run identifier to scope by).
 Fixed by making §3.1 state plainly that the field is project-scoped, not
 run-scoped, with the limitation demonstrated by a dedicated multi-run test
 (§5) and the proper fix (adding a run identifier to `Finding`) named as an
-explicit new Out of Scope item (§7). (2) **Blocker:** `engineVersion` was
+explicit new Out of Scope item (§7). (2) **Blocker:** `engineVersionAtRunStart` was
 specified as read fresh in `ReportService.generate` (report-generation
 time), which breaks the same staleness principle just established for
 `target`/`profileSnapshot` — an engine upgrade between a run's start and a
 much-later report generation would mislabel the run's actual engine
-version. Fixed by moving `engineVersion` to `AssessmentRun`, captured once
+version. Fixed by moving `engineVersionAtRunStart` to `AssessmentRun`, captured once
 at `start_assessment_run` time, for the same reason and in the same place
 as `target`/`profileSnapshot` (§3.3). (3) **Blocker:** making
 `target`/`profileSnapshot` required fields on `AssessmentRun` was never
@@ -680,7 +703,7 @@ Spec review round 2 (full revised spec, same thread): rated the design
 into must-fix-before-plan (items 1-3) and strongly-recommended-given-this-
 spec's-own-fidelity-goal (items 4-5), with the rest optional — all 10
 incorporated here rather than deferred. (1) **New contradiction:**
-`AssessmentRun.target`/`profileSnapshot`/`engineVersion` were typed
+`AssessmentRun.target`/`profileSnapshot`/`engineVersionAtRunStart` were typed
 required-but-nullable (`field: Type | null`), which cannot represent a
 legacy record missing the key entirely — retyped
 optional-and-nullable (`field?: Type | null`), matching this same
@@ -689,7 +712,7 @@ object-presence/value-nullability distinction spelled out explicitly.
 (2) **New contradiction:** the round-1 text claimed "every newly-created
 run never has `target: null`," which is false for `target` specifically
 (a new run whose caller omits the `target` input legitimately has
-`target: null`) — only `profileSnapshot`/`engineVersion` are
+`target: null`) — only `profileSnapshot`/`engineVersionAtRunStart` are
 always-populated-by-the-service; reworded to state this per-field rather
 than as one blanket claim. (3) **Precision:** `target`'s own input shape
 was ambiguous about which part is optional — clarified that the whole
@@ -705,7 +728,7 @@ rounded `controlCoverage` (e.g. `80.00`) can coexist with a `result` the
 number appears to contradict (e.g. `"indeterminate"`, from an unrounded
 value just under the threshold) — named as expected behavior arising from
 §3.6's own design, not resolved structurally, so a future reader doesn't
-mistake it for a bug. (6) `engineVersion` changed from an inline
+mistake it for a bug. (6) `engineVersionAtRunStart` changed from an inline
 `package.json` read to an injected `AssessmentService` constructor
 parameter (mirroring its existing injectable `now`), plus an explicit
 note that this spec's own implementation must bump `package.json`'s
@@ -730,6 +753,44 @@ Out of Scope items surfaced during this round: exact engine *source*
 (not just semver) revision provenance, and legacy-report deserialization
 (never needed, since old and new report shapes never coexist in memory).
 Explicit final verdict: proceed to the implementation plan.
+
+Spec review round 3 (full revised spec, same thread, final mandated
+round): rated the design "거의 GO" (essentially ready) — all 10 round-2
+fixes verified correctly incorporated, implementation plan unblocked by
+anything structural except one newly-surfaced issue, plus four wording
+precision items. **Structural issue:** `engineVersion` was captured once
+at `start_assessment_run` time (correct per round 1's fix) but its prose
+still claimed to answer "what engine version produced this run's
+judgment" unconditionally — true for every run in this codebase today
+(runs are short-lived and complete within one server session) but not
+actually guaranteed by the capture mechanism: a persisted `AssessmentRun`
+could in principle stay open across a server restart that upgrades the
+installed package, and nothing validates that later `record_assessment`
+calls against that `runId` still run under the captured version. Fixed by
+renaming the field to `engineVersionAtRunStart` everywhere (type
+unchanged, `string | null`) and narrowing its definition to exactly what
+capturing it at run-start guarantees, with the enforcement gap named
+explicitly as a new Out of Scope item (§7) rather than left implicit.
+Four wording-precision fixes, all applied: (1) the single-findings-fetch
+responsibility was pinned to `ReportBuilder` ("`ReportBuilder` must fetch
+findings exactly once"), which has no repository access in this design —
+reworded to pin the responsibility correctly to `ReportService.generate`,
+with `ReportBuilder` described as a pure function that performs no
+repository reads itself. (2) §3.1's ordering rationale cited
+`findingId`s being sequential as *also* establishing creation order —
+true today but not what the ordering invariant relies on or should claim;
+reworded to ground the invariant in reproducibility alone, with the
+creation-order coincidence noted as incidental, not load-bearing. (3)
+§3.5's "sole source of truth for release-blocking-control status"
+narrowed further to "authoritative representation of release-gate
+*effects*," since `blockingControlFailures`/`blockingControlsNotVerified`
+omit `ACCEPTED_RISK` blocking controls entirely and so cannot answer "what
+is this control's actual status," only "is it currently failing or
+unverified." (4) Confirmed `projectFindingSnapshots`'s rename (round 2)
+and the overall 7-section separation, testing strategy, and Out of Scope
+boundaries all hold with no further changes needed. Explicit final
+verdict: GO — proceed to the implementation plan; no further spec review
+round required (this was the last of the 3 mandated rounds).
 
 ## 7. Out of Scope
 
@@ -762,7 +823,17 @@ Explicit final verdict: proceed to the implementation plan.
   caller-asserted only; actually verifying a declared commit against a
   live checkout (or any other independent confirmation) is not built here
   (§3.3).
-- **Exact engine source revision provenance.** `engineVersion` (§3.3) is
+- **Run-wide engine-version enforcement.** A persisted `AssessmentRun` may
+  in principle remain open across a server restart; this spec records
+  `engineVersionAtRunStart` at run creation but does not detect, prevent,
+  or flag continued `record_assessment` calls against the same run under
+  a different installed engine version. The field's name (§3.3) is chosen
+  to be honest about this limit rather than implying a guarantee the
+  system doesn't enforce. Closing this gap would mean validating the
+  installed version against `engineVersionAtRunStart` on every
+  `record_assessment` call (or rejecting assessments after an upgrade) —
+  a real integrity mechanism, not a report-fidelity concern.
+- **Exact engine source revision provenance.** `engineVersionAtRunStart` (§3.3) is
   `package.json`'s semver string, not a build/commit identifier for this
   tool's own source (e.g. a git SHA of the C.S.I-mcp repository itself) —
   two different engine builds sharing the same unreleased `package.json`
