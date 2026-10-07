@@ -67,7 +67,9 @@ interface ControlAssessmentSnapshot {
 
 `ReportService.generate` filters `getControlAssessments(projectId)` to `a.runId === run.runId` before building this array — the field name is `runControlAssessmentSnapshots` (not `controlAssessmentSnapshots`) specifically to make the run-scoping visible in the type and the JSON key, not just in a comment.
 
-**Same normalization world, not a second pass.** `ReportService.generate` already fetches `getControlAssessments(projectId)` once and runs it through `translateAssessmentsForTrust` once to get the normalized assessments that `calculateScore`/`evaluateRelease` consume (this predates this spec). The run-scoped filter for `runControlAssessmentSnapshots` is applied to *that same* already-normalized result — never a second fetch, and never a second call to `translateAssessmentsForTrust` with a different clock or risk-acceptance state. If score/release and the control snapshots were normalized in two separate passes, a risk acceptance expiring (or a profile changing) between them could make the snapshot's `effectiveStatus` disagree with what the verdict shown right above it in the Executive Summary actually used — silently reopening the exact kind of self-contradiction §3.2's `recordedStatus`/`effectiveStatus` split exists to make visible, not hide.
+**Same normalization world, not a second pass.** `ReportService.generate` already fetches `getControlAssessments(projectId)` once and runs it through `translateAssessmentsForTrust` once to get the normalized assessments that `calculateScore`/`evaluateRelease` consume (this predates this spec). Precisely: for each raw `ControlAssessment` in that one fetched set, `recordedStatus` is that assessment's own `.status` field exactly as stored, and `effectiveStatus` is what `translateAssessmentsForTrust` computed for that *same* assessment in that *same* pass — the two values are two readings of one assessment object, not two independently-sourced facts. `runControlAssessmentSnapshots` and `assessmentScopes.score.contributingRunIds`/`.releaseEvaluation.contributingRunIds` (§3.5) are then derived by filtering/aggregating that one normalized set — never a second fetch, and never a second call to `translateAssessmentsForTrust` with a different clock or risk-acceptance state. If score/release and the control snapshots were normalized in two separate passes, a risk acceptance expiring (or a profile changing) between them could make the snapshot's `effectiveStatus` disagree with what the verdict shown right above it in the Executive Summary actually used — silently reopening the exact kind of self-contradiction §3.2's `recordedStatus`/`effectiveStatus` split exists to make visible, not hide.
+
+The same discipline extends one level further: `translateAssessmentsForTrust` itself consults `RiskAcceptance` records to decide validity, and §3.4's `riskAcceptanceSnapshots[]` separately projects `RiskAcceptance` records for display. **Invariant:** the `RiskAcceptance` records `translateAssessmentsForTrust` used for this normalization pass and the records projected into `riskAcceptanceSnapshots[]` originate from the same single loaded/indexed `RiskAcceptance` set for this report generation — not two independent reads. Fetching `RiskAcceptance` twice (once inside trust normalization, once when building the snapshot array) would reopen the exact same race the paragraph above closes for `ControlAssessment`, just one hop further down the dependency chain.
 
 **`recordedStatus` vs. `effectiveStatus` — both are required, neither is optional.** `assessment-trust-integrity` already built a `stored assessment → staleness/RiskAcceptance validity normalization → effective assessment → calculateScore/evaluateRelease` pipeline (`translateAssessmentsForTrust`). If the projection only carried the effective value, a reader would see `NOT_TESTED` with no way to tell it was originally recorded as `PASS` and degraded by a stale profile — reopening the exact "report hides what the engine actually used" problem `report-fidelity` was built to close, just in a new field. If it only carried the recorded value, the report would contradict its own release verdict (showing `PASS` next to a verdict that was computed treating it as `NOT_TESTED`). Both, always.
 
@@ -95,7 +97,9 @@ There is deliberately no `"unchanged"` code and no other way to represent "no re
 
 The join is `(controlId, controlVersion)` exact match. When it succeeds, `title`/`domain` are populated normally. When `controlVersion` doesn't match what's in the current catalog (the control definition changed since this assessment), **`ControlAssessmentSnapshot.title`/`.domain` are `null`** — not silently backfilled with the current catalog's values. Showing the current catalog's title next to a snapshot that claims to represent a past assessment would be exactly the kind of provenance distortion (a reader would reasonably assume `title` describes what was actually assessed, when it would actually describe a possibly-different later revision) that §3.2's `recordedStatus`/`effectiveStatus` split exists to prevent elsewhere — the fix can't reintroduce the same class of bug here.
 
-A `control_definition_version_mismatch` entry naming the affected `controlId` is recorded in the reference-integrity structure (§4's `referenceIntegrity`, replacing the narrower `assessmentScopes.controlDefinitionVersionMismatches` from an earlier draft — see §3.5). The presentation layer (`ControlRow`, §5.4.1) is free to additionally look up the *current* catalog's title for identification purposes and display it labeled as "current definition (may differ from what was assessed)" — but that is a presentation-layer convenience field, separate from and never overwriting the canonical `ControlAssessmentSnapshot.title`/`.domain`, which stay honestly `null`.
+A `control_definition_version_mismatch` entry naming the affected `controlId` is recorded in the reference-integrity structure (§4's `referenceIntegrity`, replacing the narrower `assessmentScopes.controlDefinitionVersionMismatches` from an earlier draft — see §3.5).
+
+An earlier draft of `ControlRow` (§5.4.1) additionally exposed a `currentCatalogTitle` field — a live lookup of the control's *current* catalog title, shown next to the mismatch flag for identification. Removed: §4's invariant is that `buildPresentationModel` reads nothing besides `ProjectReport` and the injected `opts` — no other data source, including the live control catalog. A field that requires a fresh `getControls()` read cannot exist inside a function whose own contract says it touches no other data source. When `title`/`domain` are `null`, `controlId` alone is the identifier the HTML shows for that row, paired with a visible flag (e.g. "Control definition v1 unavailable — current catalog definition differs from the assessed version") — honest under-identification, not a fabricated or live-fetched substitute.
 
 ### 3.3 `evidenceSnapshots[]`
 
@@ -141,27 +145,22 @@ interface RiskAcceptanceSnapshot {
 
 ### 3.5 `assessmentScopes`
 
-Earlier drafts of this field were two flat string arrays (`projectScoped`/`runScoped`) plus an unrelated `controlDefinitionVersionMismatches` list — too weak to actually describe *which* run's data a project-scoped field draws from, and conflating a scope fact with an integrity problem (version mismatches are a data-quality issue, not a scoping dimension — moved to `referenceIntegrity`, §4). The structured replacement, keyed by field name, with an explicit `kind` discriminator:
+Two earlier drafts of this field existed: first two flat string arrays (`projectScoped`/`runScoped`) plus an unrelated `controlDefinitionVersionMismatches` list (too weak — didn't say *which* run's data a project-scoped field draws from, and conflated a scope fact with an integrity problem); then a generic `fields: AssessmentFieldScope[]` array (allows duplicate entries, missing entries, and typos like `"socre"` with nothing to catch them short of a separate runtime validator). The structured replacement is a **fixed-key object**, one named property per field this spec adds — a JSON Schema validates "every field present exactly once" for free, which an array never could:
 
 ```ts
-type AssessmentFieldScope =
-  | { kind: "project"; field: string }
-  | { kind: "run"; field: string; runId: string }
-  | { kind: "run-aggregate"; field: string; contributingRunIds: string[] };
-
 interface AssessmentScopes {
-  fields: AssessmentFieldScope[];
-  // e.g.:
-  // { kind: "project", field: "projectFindingSnapshots" }
-  // { kind: "project", field: "score" }
-  // { kind: "project", field: "releaseEvaluation" }
-  // { kind: "run", field: "runControlAssessmentSnapshots", runId: "<assessmentRunId>" }
-  // { kind: "run", field: "evidenceSnapshots", runId: "<assessmentRunId>" }
-  // { kind: "run", field: "riskAcceptanceSnapshots", runId: "<assessmentRunId>" }
+  projectFindingSnapshots: { kind: "project" };
+  score: { kind: "project-assessment-set"; contributingRunIds: string[] };
+  releaseEvaluation: { kind: "project-assessment-set"; contributingRunIds: string[] };
+  runControlAssessmentSnapshots: { kind: "run"; runId: string };
+  evidenceSnapshots: { kind: "referenced-by-run"; runId: string };
+  riskAcceptanceSnapshots: { kind: "referenced-by-run"; runId: string };
 }
 ```
 
-`kind: "run-aggregate"` exists for a future field that might combine data from more than one run (none does in this cycle — `contributingRunIds` would just be `[assessmentRunId]` were it used today, but the shape is defined now so it doesn't need a breaking change later). Every field this spec adds appears exactly once in `fields[]`.
+`score`/`releaseEvaluation` are `"project-assessment-set"`, not plain `"project"`: `calculateScore`/`evaluateRelease` consume `getControlAssessments(projectId)` — every `ControlAssessment` for the project, which can span more than one `AssessmentRun` (two of the eight real validation projects, Outline and Formbricks, already have two runs each). `contributingRunIds` is the distinct, sorted set of `runId` values actually present across the assessments that fed that calculation — computed once from the same normalized assessment set §3.2 already fetches (see below), never a second query. This is what actually makes the project-scoped-vs-run-scoped split machine-readable: a reader can see that the verdict drew on assessments from runs the Control Matrix (scoped to just `assessmentRunId`) doesn't show.
+
+No `"run-aggregate"`/generic-combination variant is defined — nothing in this cycle needs one (YAGNI), and `"project-assessment-set"` already says precisely what `score`/`releaseEvaluation` are: a project-wide aggregate that happens to be traceable back to specific runs.
 
 ### 3.6 `reportSchemaVersion` → `"2.1.0"`
 
@@ -256,7 +255,9 @@ interface PresentationLimitation {
     | "project_scoped_score_release"
     | "control_definition_version_mismatch"
     | "rounded_display_values"
-    | "missing_evidence";
+    | "missing_evidence"
+    | "missing_risk_acceptance"
+    | "missing_finding_reference";
   severity: "info" | "warning";
   message: string;
 }
@@ -307,7 +308,6 @@ interface ControlRow {
   runId: string;                       // carried through from ControlAssessmentSnapshot.runId (§3.2), shown on hover/click per §6.5
   title: string | null;                // null when §3.2.1's exact-version join failed
   domain: string | null;               // null when §3.2.1's exact-version join failed
-  currentCatalogTitle: string | null;   // presentation-layer-only convenience lookup, labeled distinctly — never substituted for `title`
   controlDefinitionVersionMismatch: boolean;   // true when §3.2.1's exact-version join failed
   recordedStatus: ControlAssessmentSnapshot["recordedStatus"];
   effectiveStatus: ControlAssessmentSnapshot["effectiveStatus"];
@@ -359,6 +359,8 @@ interface FindingCard {
   linkedControlIds: string[];     // FindingSnapshot.controlIds, cross-referenced against ControlRow for drill-down links
 }
 ```
+
+`linkedControlIds` entries are not guaranteed to match a `ControlRow` in `PresentationModel.controls` — `Finding`/`projectFindingSnapshots` is project-scoped while `runControlAssessmentSnapshots`/`ControlRow` is scoped to this report's single `assessmentRunId` (§3.2), so a finding tied to a control outside the current run's matrix is an expected consequence of that scope difference, not a data-integrity error. The HTML renders a drill-down anchor link only when a matching `ControlRow` exists; otherwise it shows the bare `controlId` as plain text. This case is not added to `referenceIntegrity` (§4) — that structure tracks genuinely missing data (an id that should have resolved within its own scope and didn't), not an expected cross-scope mismatch.
 
 ### 5.6 Control Evidence & Risk Acceptance
 
@@ -429,11 +431,11 @@ Framed as a **testable baseline**, not a WCAG conformance claim — every item b
 
 `ProjectReport` data originates from real assessed repositories and can contain literal attacker-controlled strings (e.g. a finding's `exploitabilityEvidence` quoting an actual XSS payload found in the target codebase). **Invariant: no `ProjectReport` string may be interpolated into raw HTML without escaping.** This has two distinct injection points, with different mechanisms:
 
-**Server-side, when the renderer assembles the HTML document (markup escaping):**
-- Text content → `textContent`, never template-literal string concatenation into `innerHTML`.
-- Attributes → dedicated attribute escaping.
-- URLs → protocol allow-list.
-- No `innerHTML` is ever set from report data, anywhere in the renderer.
+**Server-side, when the renderer assembles the HTML document as a string (markup escaping):** this is Node.js code building an HTML string — there is no live DOM here, so `textContent`/`innerHTML` (DOM APIs) don't apply; the renderer calls dedicated escaping functions before concatenating report data into the output string:
+- HTML text node content → `escapeHtmlText()` (encodes `<`, `>`, `&`, quotes).
+- HTML attribute value → `escapeHtmlAttribute()` (a stricter encoding than text-node escaping — attribute context has its own injection risks, e.g. unquoted attributes).
+- URL-valued attributes (e.g. `href`) → protocol validated against an allow-list, *then* `escapeHtmlAttribute()`.
+- No report-data string is ever concatenated into the output HTML string without going through one of these functions first.
 
 **Client-side, in the inline `<script>` that runs in the browser (runtime escaping):**
 - Any report data the inline script touches goes through `textContent`, never `innerHTML`.
