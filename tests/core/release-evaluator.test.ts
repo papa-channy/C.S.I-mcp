@@ -68,14 +68,14 @@ describe("evaluateRelease — thresholds", () => {
   it("SVL-3, one open critical finding -> blocked", () => {
     const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "confirmed_vulnerability" }];
     const result = evaluateRelease(baseInputs({ findings }));
-    expect(result.criticalFindings).toBe(1);
+    expect(result.confirmedCriticalVulnerabilities).toBe(1);
     expect(result.result).toBe("blocked");
   });
 
-  it("a resolved critical finding does not count toward criticalFindings or block the release", () => {
+  it("a resolved critical finding does not count toward confirmedCriticalVulnerabilities or block the release", () => {
     const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "resolved", severity: "critical", type: "confirmed_vulnerability" }];
     const result = evaluateRelease(baseInputs({ findings, assessments: allBlockingControlsPass() }));
-    expect(result.criticalFindings).toBe(0);
+    expect(result.confirmedCriticalVulnerabilities).toBe(0);
     expect(result.result).toBe("approved");
   });
 
@@ -97,7 +97,7 @@ describe("evaluateRelease — thresholds", () => {
       ...allBlockingControlsPass(),
     ];
     const result = evaluateRelease(baseInputs({ findings, assessments, securityLevel: "SVL-2" }));
-    expect(result.highFindings).toBe(1); // the raw count is unaffected by the exception
+    expect(result.confirmedHighVulnerabilities).toBe(1); // the raw count is unaffected by the exception
     expect(result.result).toBe("approved");
   });
 
@@ -112,14 +112,14 @@ describe("evaluateRelease — type-based gating", () => {
   it("SVL-3, an open critical finding typed control_gap does not block the release", () => {
     const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "control_gap" }];
     const result = evaluateRelease(baseInputs({ findings, assessments: allBlockingControlsPass() }));
-    expect(result.criticalFindings).toBe(0);
+    expect(result.confirmedCriticalVulnerabilities).toBe(0);
     expect(result.result).toBe("approved");
   });
 
   it("SVL-3, an open high finding typed hardening does not block the release", () => {
     const findings: FindingInput[] = [{ findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "high", type: "hardening" }];
     const result = evaluateRelease(baseInputs({ findings, assessments: allBlockingControlsPass() }));
-    expect(result.highFindings).toBe(0);
+    expect(result.confirmedHighVulnerabilities).toBe(0);
     expect(result.result).toBe("approved");
   });
 
@@ -130,16 +130,27 @@ describe("evaluateRelease — type-based gating", () => {
     expect(result.unblockedCriticalAttackPaths).toBe(0);
   });
 
-  it("mixed set: only the confirmed_vulnerability finding counts toward criticalFindings/highFindings", () => {
+  it("mixed set: only the confirmed_vulnerability finding counts toward confirmedCriticalVulnerabilities/confirmedHighVulnerabilities", () => {
     const findings: FindingInput[] = [
       { findingId: "F-1", controlIds: ["X-001"], status: "open", severity: "critical", type: "confirmed_vulnerability" },
       { findingId: "F-2", controlIds: ["X-002"], status: "open", severity: "high", type: "control_gap" },
       { findingId: "F-3", controlIds: ["X-003"], status: "open", severity: "high", type: "needs_validation" },
     ];
     const result = evaluateRelease(baseInputs({ findings }));
-    expect(result.criticalFindings).toBe(1);
-    expect(result.highFindings).toBe(0);
+    expect(result.confirmedCriticalVulnerabilities).toBe(1);
+    expect(result.confirmedHighVulnerabilities).toBe(0);
     expect(result.result).toBe("blocked");
+  });
+
+  it("confirmedCriticalVulnerabilities does NOT count an active hardening-type finding at severity critical — only confirmed_vulnerability counts", () => {
+    const findings: FindingInput[] = [
+      { findingId: "F-1", controlIds: ["A-001"], severity: "critical", status: "open", type: "hardening" },
+    ];
+    const result = evaluateRelease({
+      score: { coverage: { coveragePercent: 100 } },
+      findings, attackPaths: [], assessments: [], securityLevel: "SVL-3",
+    });
+    expect(result.confirmedCriticalVulnerabilities).toBe(0);
   });
 });
 
@@ -286,8 +297,8 @@ describe("evaluateRelease — Control Gate (RELEASE_BLOCKING_CONTROLS)", () => {
     );
     expect(result.result).toBe("blocked");
     expect(result.blockingControlFailures).toEqual([BLOCKING_CONTROL]);
-    expect(result.criticalFindings).toBe(0);
-    expect(result.highFindings).toBe(0); // the control_gap finding never reaches the Finding Gate's counters
+    expect(result.confirmedCriticalVulnerabilities).toBe(0);
+    expect(result.confirmedHighVulnerabilities).toBe(0); // the control_gap finding never reaches the Finding Gate's counters
   });
 
   it("blockingControlFailures and blockingControlsNotVerified never share a controlId", () => {

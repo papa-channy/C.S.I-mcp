@@ -59,8 +59,8 @@ export interface ControlAssessmentInput {
 export interface ReleaseEvaluation {
   gate: 4;
   controlCoverage: number;
-  criticalFindings: number;
-  highFindings: number;
+  confirmedCriticalVulnerabilities: number;
+  confirmedHighVulnerabilities: number;
   unblockedCriticalAttackPaths: number;
   residualRisksAccepted: number;
   incidentResponseVerified: boolean;
@@ -94,8 +94,8 @@ export function evaluateRelease(inputs: {
   );
   const activeCritical = activeFindings.filter((f) => f.severity === "critical");
   const activeHigh = activeFindings.filter((f) => f.severity === "high");
-  const criticalFindings = activeCritical.length;
-  const highFindings = activeHigh.length;
+  const confirmedCriticalVulnerabilities = activeCritical.length;
+  const confirmedHighVulnerabilities = activeHigh.length;
 
   const criticalFindingIds = new Set(activeCritical.map((f) => f.findingId));
   const unblockedCriticalAttackPaths = attackPaths.filter(
@@ -140,9 +140,9 @@ export function evaluateRelease(inputs: {
   const uncoveredHigh = activeHigh.filter(
     (f) => !(f.controlIds.length > 0 && f.controlIds.every((id) => assessmentByControl.get(id) === "ACCEPTED_RISK"))
   );
-  const highFindingsSatisfied = securityLevel === "SVL-3" ? highFindings === 0 : uncoveredHigh.length === 0;
+  const highFindingsSatisfied = securityLevel === "SVL-3" ? confirmedHighVulnerabilities === 0 : uncoveredHigh.length === 0;
 
-  const findingThresholdsPass = criticalFindings === 0 && highFindingsSatisfied;
+  const findingThresholdsPass = confirmedCriticalVulnerabilities === 0 && highFindingsSatisfied;
   const controlGatePass = blockingControlFailures.length === 0;
   const coverageOk = score.coverage.coveragePercent >= MIN_COVERAGE_FOR_APPROVAL_PERCENT;
 
@@ -156,8 +156,8 @@ export function evaluateRelease(inputs: {
   return {
     gate: 4,
     controlCoverage: score.coverage.coveragePercent,
-    criticalFindings,
-    highFindings,
+    confirmedCriticalVulnerabilities,
+    confirmedHighVulnerabilities,
     unblockedCriticalAttackPaths,
     residualRisksAccepted,
     incidentResponseVerified,

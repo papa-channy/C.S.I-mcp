@@ -35,18 +35,22 @@ describe("schema-drift", () => {
     expect([...(embedded.required ?? [])].sort()).toEqual([...standaloneRequired].sort());
   });
 
-  it("ProjectReport.releaseEvaluation matches release-evaluation-schema.json (minus projectId and evaluatedAt)", () => {
+  it("ProjectReport.releaseEvaluation matches release-evaluation-schema.json minus projectId/evaluatedAt and minus the 3 fields report-fidelity intentionally excludes from the report (unblockedCriticalAttackPaths, incidentResponseVerified, backupRestoreVerified — see docs/superpowers/specs/2026-10-06-report-fidelity-design.md §3.4/§3.5)", () => {
     const reportSchema = loadJson<{ properties: { releaseEvaluation: JsonSchemaObject } }>(
       "data/schemas/project-report-schema.json"
     );
     const releaseSchema = loadJson<JsonSchemaObject>("data/schemas/release-evaluation-schema.json");
     const embedded = reportSchema.properties.releaseEvaluation;
 
+    const EXCLUDED_FROM_REPORT = ["unblockedCriticalAttackPaths", "incidentResponseVerified", "backupRestoreVerified"];
     const { projectId, evaluatedAt, ...standaloneProps } = releaseSchema.properties ?? {};
-    expect(embedded.properties).toEqual(standaloneProps);
+    const expectedProps = Object.fromEntries(
+      Object.entries(standaloneProps).filter(([key]) => !EXCLUDED_FROM_REPORT.includes(key))
+    );
+    expect(embedded.properties).toEqual(expectedProps);
 
     const standaloneRequired = (releaseSchema.required ?? []).filter(
-      (k) => k !== "projectId" && k !== "evaluatedAt"
+      (k) => k !== "projectId" && k !== "evaluatedAt" && !EXCLUDED_FROM_REPORT.includes(k)
     );
     expect([...(embedded.required ?? [])].sort()).toEqual([...standaloneRequired].sort());
   });

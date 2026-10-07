@@ -1,6 +1,9 @@
 // This module's only I/O boundary with the outside world is stdio, and StdioServerTransport
 // uses stdout as the JSON-RPC message channel — do not add any console.log here or in anything
 // this file imports. console.error (stderr) is safe if logging is ever needed.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { JsonRepository } from "../core/repository.js";
@@ -23,15 +26,24 @@ import { registerGenerateReportTool } from "./tools/generate-report.js";
 import { registerRecordRiskAcceptanceTool } from "./tools/record-risk-acceptance.js";
 import { registerRevokeRiskAcceptanceTool } from "./tools/revoke-risk-acceptance.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function readEngineVersion(): string {
+  const packageJsonPath = join(__dirname, "..", "..", "package.json");
+  const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { version: string };
+  return pkg.version;
+}
+
 export function buildServer(dataDir = "data"): McpServer {
+  const engineVersion = readEngineVersion();
   const repository = new JsonRepository(dataDir);
   const projectService = new ProjectService(repository);
-  const assessmentService = new AssessmentService(repository);
+  const assessmentService = new AssessmentService(repository, undefined, engineVersion);
   const analysisService = new AnalysisService(repository);
   const reportService = new ReportService(repository);
   const riskAcceptanceService = new RiskAcceptanceService(repository);
 
-  const server = new McpServer({ name: "csi-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "csi-mcp", version: engineVersion });
 
   registerCreateProjectTool(server, projectService);
   registerGetProjectTool(server, projectService);

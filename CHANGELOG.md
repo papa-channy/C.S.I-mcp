@@ -12,6 +12,39 @@ history on 2026-10-05, when this file and git tagging were introduced
 shipped, so these are documentation of what happened, not historical
 release artifacts.
 
+## [0.9.0] — 2026-10-07
+
+### Added
+- `projectFindingSnapshots` on `ProjectReport`: full finding records (type,
+  severity, `controlIds`, `attackScenario`, `exploitabilityEvidence`) sorted
+  deterministically by `findingId`, so a report is self-contained evidence
+  rather than a set of IDs a reader must cross-reference elsewhere.
+- Provenance fields `target` / `profileSnapshot` / `engineVersionAtRunStart`
+  on `AssessmentRun` and `ProjectReport`, captured once at
+  `start_assessment_run` time and never re-read later — including
+  `start_assessment_run`'s new optional `target` input.
+- `reportSchemaVersion` (`"2.0.0"`) on `ProjectReport`.
+
+### Changed
+- Breaking: `score.ts`'s `DomainScore.criticalFindings` /
+  `highFindings` renamed to `criticalSeverityFindings` /
+  `highSeverityFindings`.
+- Breaking: `release-evaluator.ts`'s `ReleaseEvaluation.criticalFindings` /
+  `highFindings` renamed to `confirmedCriticalVulnerabilities` /
+  `confirmedHighVulnerabilities`. Both renames propagate through
+  `get_score`/`evaluate_release`/`generate_report`'s live MCP output and all
+  3 JSON schemas; calculation logic in both files is unchanged, only the
+  output field names differ.
+- Report numeric fields (coverage percentages, scores) are now rounded to 2
+  decimal places at the report-serialization boundary only, never before
+  gate-threshold comparisons.
+
+### Removed
+- `unblockedCriticalAttackPaths`, `incidentResponseVerified`,
+  `backupRestoreVerified` dropped from `ProjectReport` only — core
+  `release-evaluator.ts`'s `ReleaseEvaluation` interface and
+  `evaluate_release`'s live tool output keep all three unchanged.
+
 ## [0.8.0] — 2026-10-05
 
 ### Added

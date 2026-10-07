@@ -36,7 +36,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
 
     const server = new McpServer({ name: "test", version: "0.0.0" });
     const projectService = new ProjectService(repository);
-    const assessmentService = new AssessmentService(mixedRepository(repository, realCatalog));
+    const assessmentService = new AssessmentService(mixedRepository(repository, realCatalog), undefined, "0.9.0-test");
     const analysisService = new AnalysisService(mixedRepository(repository, realCatalog));
     const reportService = new ReportService(mixedRepository(repository, realCatalog));
 

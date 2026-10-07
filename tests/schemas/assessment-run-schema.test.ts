@@ -33,4 +33,31 @@ describe("assessment-run-schema", () => {
     const { planVersion, ...rest } = valid;
     expect(validate(rest)).toBe(false);
   });
+
+  it("accepts a run with target/profileSnapshot/engineVersionAtRunStart populated", () => {
+    const validate = compileSchemaFromFile("data/schemas/assessment-run-schema.json");
+    const doc = {
+      ...valid,
+      target: { repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false },
+      profileSnapshot: { securityLevel: "SVL-2", exposure: ["internet_public"] },
+      engineVersionAtRunStart: "0.9.0",
+    };
+    expect(validate(doc), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("accepts a run with target/profileSnapshot/engineVersionAtRunStart keys entirely absent (legacy compatibility)", () => {
+    const validate = compileSchemaFromFile("data/schemas/assessment-run-schema.json");
+    expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("accepts target: null explicitly (a new run whose caller declined to declare provenance)", () => {
+    const validate = compileSchemaFromFile("data/schemas/assessment-run-schema.json");
+    expect(validate({ ...valid, target: null }), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("rejects a target object missing repository", () => {
+    const validate = compileSchemaFromFile("data/schemas/assessment-run-schema.json");
+    const doc = { ...valid, target: { commitSha: null, branchOrTag: null, dirty: null } };
+    expect(validate(doc)).toBe(false);
+  });
 });

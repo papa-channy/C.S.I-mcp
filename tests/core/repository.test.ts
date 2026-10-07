@@ -43,9 +43,11 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach } from "vitest";
 import { join } from "node:path";
-import type { AssessmentBatch, AssessmentRun, ControlAssessment, Evidence, Finding, Project, RiskAcceptance } from "../../src/core/repository.js";
+import type { AssessmentBatch, AssessmentRun, ControlAssessment, Evidence, Finding, Project, RiskAcceptance, Target, SecurityRepository } from "../../src/core/repository.js";
 import type { ProjectReport } from "../../src/core/report-builder.js";
 import type { AssessmentPlan } from "../../src/core/plan-expander.js";
+import { ReportService } from "../../src/service/report-service.js";
+import { RELEASE_BLOCKING_CONTROLS } from "../../src/core/release-evaluator.js";
 
 describe("JsonRepository — project-instance read/write (temp data/ tree)", () => {
   let dir: string;
@@ -78,6 +80,32 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
     expect(reloaded).toEqual(run);
   });
 
+  it("saveRun then reload round-trips an AssessmentRun with target/profileSnapshot/engineVersionAtRunStart populated", async () => {
+    const run: AssessmentRun = {
+      runId: "RUN-2", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "2.1.0", batchIds: [], status: "pending",
+      target: { repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false },
+      profileSnapshot: { securityLevel: "SVL-2", exposure: ["internet_public"] },
+      engineVersionAtRunStart: "0.9.0",
+    };
+    await repo.saveRun(run);
+    const reloaded = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "runs", "RUN-2.json")));
+    expect(reloaded).toEqual(run);
+  });
+
+  it("a legacy AssessmentRun JSON file with target/profileSnapshot/engineVersionAtRunStart entirely absent still loads via getRun", async () => {
+    const legacyRun = {
+      runId: "RUN-LEGACY", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "2.1.0", batchIds: [], status: "pending",
+    };
+    mkdirSync(join(dir, "projects", "PRJ-1", "runs"), { recursive: true });
+    writeFileSync(join(dir, "projects", "PRJ-1", "runs", "RUN-LEGACY.json"), JSON.stringify(legacyRun));
+    const loaded = await repo.getRun("PRJ-1", "RUN-LEGACY");
+    expect(loaded.target).toBeUndefined();
+    expect(loaded.profileSnapshot).toBeUndefined();
+    expect(loaded.engineVersionAtRunStart).toBeUndefined();
+  });
+
   it("saveBatch then reload round-trips the AssessmentBatch", async () => {
     const batch: AssessmentBatch = { batchId: "BATCH-1", projectId: "PRJ-1", status: "pending" };
     await repo.saveBatch(batch);
@@ -90,7 +118,9 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
       reportId: "REP-1", projectId: "PRJ-1", assessmentRunId: "RUN-1", catalogVersion: "1.0.0", profileRevision: 1,
       criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" }, generatedAt: "2026-09-28T00:00:00.000Z",
       score: { overallScore: 80, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 }, scoreModel: { id: "M", version: "1" }, domainScores: [] },
-      prioritizedFindings: [], releaseEvaluation: { gate: 4, controlCoverage: 100, criticalFindings: 0, highFindings: 0, unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0, incidentResponseVerified: true, backupRestoreVerified: true, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" as const },
+      prioritizedFindings: [], projectFindingSnapshots: [],
+      releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" as const },
+      target: null, profileSnapshot: null, engineVersionAtRunStart: null, reportSchemaVersion: "2.0.0",
       summary: "ok",
     } satisfies ProjectReport;
     await repo.saveReport(report);
@@ -229,3 +259,88 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
 function readFileSyncUtf8(path: string): string {
   return readFileSync(path, "utf-8");
 }
+
+function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepository): SecurityRepository {
+  return {
+    getProject: projectRepo.getProject.bind(projectRepo),
+    getControls: catalogRepo.getControls.bind(catalogRepo),
+    getThreats: catalogRepo.getThreats.bind(catalogRepo),
+    getCriticalityFormula: catalogRepo.getCriticalityFormula.bind(catalogRepo),
+    getScoreModel: catalogRepo.getScoreModel.bind(catalogRepo),
+    getReleaseGates: catalogRepo.getReleaseGates.bind(catalogRepo),
+    getPlan: projectRepo.getPlan.bind(projectRepo),
+    getCatalogVersion: catalogRepo.getCatalogVersion.bind(catalogRepo),
+    getControlAssessments: projectRepo.getControlAssessments.bind(projectRepo),
+    getFindings: projectRepo.getFindings.bind(projectRepo),
+    getEvidence: projectRepo.getEvidence.bind(projectRepo),
+    getRiskAcceptances: projectRepo.getRiskAcceptances.bind(projectRepo),
+    getRun: projectRepo.getRun.bind(projectRepo),
+    saveRun: projectRepo.saveRun.bind(projectRepo),
+    saveBatch: projectRepo.saveBatch.bind(projectRepo),
+    saveReport: projectRepo.saveReport.bind(projectRepo),
+    savePlan: projectRepo.savePlan.bind(projectRepo),
+    saveProject: projectRepo.saveProject.bind(projectRepo),
+    saveControlAssessment: projectRepo.saveControlAssessment.bind(projectRepo),
+    saveFinding: projectRepo.saveFinding.bind(projectRepo),
+    saveEvidence: projectRepo.saveEvidence.bind(projectRepo),
+    saveRiskAcceptance: projectRepo.saveRiskAcceptance.bind(projectRepo),
+  };
+}
+
+describe("JsonRepository — old ProjectReport files are never touched by ReportService.generate()'s normal path", () => {
+  const NOW = "2026-10-06T00:00:00.000Z";
+  let dir: string;
+  let repo: JsonRepository;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "csi-mcp-repo-"));
+    repo = new JsonRepository(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("a legacy-shaped report on disk is byte-for-byte unchanged after ReportService.generate() creates a new report for the same project", async () => {
+    const legacyReportPath = join(dir, "projects", "PRJ-1", "reports", "REP-LEGACY.json");
+    mkdirSync(join(dir, "projects", "PRJ-1", "reports"), { recursive: true });
+    const legacyReport = {
+      reportId: "REP-LEGACY", projectId: "PRJ-1", assessmentRunId: "RUN-OLD", catalogVersion: "1.0.0", profileRevision: 1,
+      criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" }, generatedAt: "2026-08-01T00:00:00.000Z",
+      score: { overallScore: 90, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 }, scoreModel: { id: "M", version: "1" }, domainScores: [] },
+      prioritizedFindings: [],
+      releaseEvaluation: { gate: 4, controlCoverage: 100, criticalFindings: 0, highFindings: 0, unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0, incidentResponseVerified: true, backupRestoreVerified: true, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" },
+      summary: "a pre-2.0.0 report with the old field names and no reportSchemaVersion at all",
+    };
+    writeFileSync(legacyReportPath, JSON.stringify(legacyReport, null, 2));
+    const before = readFileSyncUtf8(legacyReportPath);
+
+    const realCatalog = new JsonRepository("data");
+    const mixed = mixedRepository(repo, realCatalog);
+    await repo.saveProject({
+      projectId: "PRJ-1", name: "Demo", owner: "alice", createdAt: NOW, profileRevision: 1,
+      profile: { securityLevel: "SVL-3", exposure: ["internet_public"], features: {}, technologies: {} },
+    });
+    await repo.saveRun({
+      runId: "RUN-NEW", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: (await realCatalog.getCatalogVersion()), batchIds: [], status: "running", startedAt: NOW, completedAt: null,
+    });
+    const blockingControls = [...RELEASE_BLOCKING_CONTROLS];
+    for (let i = 0; i < blockingControls.length; i++) {
+      await repo.saveControlAssessment({
+        assessmentId: `A-${i + 1}`, projectId: "PRJ-1", controlId: blockingControls[i], controlVersion: 1,
+        runId: "RUN-NEW", profileRevision: 1,
+        applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+        status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: NOW, nextReviewAt: null, notes: null,
+      });
+    }
+    const reportService = new ReportService(mixed, () => NOW);
+    const newReport = await reportService.generate({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh 2.0.0 report for the same project" });
+
+    const after = readFileSyncUtf8(legacyReportPath);
+    expect(after).toBe(before);
+    expect(newReport.reportSchemaVersion).toBe("2.0.0");
+    const newReportOnDisk = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "reports", `${newReport.reportId}.json`)));
+    expect(newReportOnDisk.reportSchemaVersion).toBe("2.0.0");
+  });
+});

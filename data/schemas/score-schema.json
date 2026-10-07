@@ -42,10 +42,10 @@
           "notTestedCount": { "type": "integer", "minimum": 0 },
           "notApplicableCount": { "type": "integer", "minimum": 0 },
           "acceptedRiskCount": { "type": "integer", "minimum": 0 },
-          "criticalFindings": { "type": "integer", "minimum": 0 },
-          "highFindings": { "type": "integer", "minimum": 0 }
+          "criticalSeverityFindings": { "type": "integer", "minimum": 0 },
+          "highSeverityFindings": { "type": "integer", "minimum": 0 }
         },
-        "required": ["domain", "score", "totalControls", "applicableControls", "assessedControls", "coveragePercent", "passCount", "failCount", "partialCount", "notTestedCount", "notApplicableCount", "acceptedRiskCount", "criticalFindings", "highFindings"],
+        "required": ["domain", "score", "totalControls", "applicableControls", "assessedControls", "coveragePercent", "passCount", "failCount", "partialCount", "notTestedCount", "notApplicableCount", "acceptedRiskCount", "criticalSeverityFindings", "highSeverityFindings"],
         "additionalProperties": false
       }
     },

@@ -94,3 +94,64 @@ describe("ReportService.generate — freshness-aware trust translation", () => {
     expect(stored.status).toBe("ACCEPTED_RISK"); // stored record is never mutated
   });
 });
+
+class CountingRepository extends FakeRepository {
+  getFindingsCallCount = 0;
+  override async getFindings(projectId: string) {
+    this.getFindingsCallCount++;
+    return super.getFindings(projectId);
+  }
+}
+
+describe("ReportService.generate — single findings fetch and provenance pass-through", () => {
+  it("fetches findings exactly once per generate() call", async () => {
+    const repo = new CountingRepository();
+    await makeGeneratableProject(repo);
+    const service = new ReportService(repo, () => NOW);
+    await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(repo.getFindingsCallCount).toBe(1);
+  });
+
+  it("copies target/profileSnapshot/engineVersionAtRunStart from the run onto the generated report", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo);
+    const target = { repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false };
+    const run = await repo.getRun("PRJ-1", "RUN-1");
+    await repo.saveRun({ ...run, target, profileSnapshot: { securityLevel: "SVL-3", exposure: [] }, engineVersionAtRunStart: "0.9.0" });
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(report.target).toEqual(target);
+    expect(report.profileSnapshot).toEqual({ securityLevel: "SVL-3", exposure: [] });
+    expect(report.engineVersionAtRunStart).toBe("0.9.0");
+  });
+
+  it("a report generated from a run with target/profileSnapshot/engineVersionAtRunStart absent carries them forward as null (legacy run)", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo);
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(report.target).toBeNull();
+    expect(report.profileSnapshot).toBeNull();
+    expect(report.engineVersionAtRunStart).toBeNull();
+  });
+});
+
+describe("ReportService.generate — projectFindingSnapshots is project-scoped, not run-scoped", () => {
+  it("a report generated from an earlier run still includes findings associated with a later run on the same project", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo); // creates RUN-1
+    await repo.saveRun({
+      runId: "RUN-2", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "9.9.9", batchIds: [], status: "running", startedAt: NOW, completedAt: null,
+    });
+    await repo.saveFinding("PRJ-1", {
+      findingId: "FND-001", title: "Found under RUN-2's assessment work", type: "control_gap",
+      controlIds: [], status: "open", severity: "low",
+      priority: { index: 5, source: "agent", rationale: "x", assignedBy: "x", assignedAt: NOW },
+      criticality: { index: 1, formulaId: "CRIT-DEFAULT", formulaVersion: "1.0.0", computedAt: NOW },
+    });
+    const service = new ReportService(repo, () => NOW);
+    const reportForEarlierRun = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(reportForEarlierRun.projectFindingSnapshots.map((f) => f.findingId)).toContain("FND-001");
+  });
+});

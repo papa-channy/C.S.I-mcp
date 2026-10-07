@@ -107,6 +107,13 @@ export interface RiskAcceptance {
   revokedReason: string | null;
 }
 
+export interface Target {
+  repository: string;
+  commitSha: string | null;
+  branchOrTag: string | null;
+  dirty: boolean | null;
+}
+
 export interface AssessmentRun {
   runId: string;
   projectId: string;
@@ -118,6 +125,9 @@ export interface AssessmentRun {
   status: "pending" | "running" | "completed" | "failed" | "partial";
   startedAt?: string | null;
   completedAt?: string | null;
+  target?: Target | null;
+  profileSnapshot?: ProjectProfile | null;
+  engineVersionAtRunStart?: string | null;
   [key: string]: unknown;
 }
 

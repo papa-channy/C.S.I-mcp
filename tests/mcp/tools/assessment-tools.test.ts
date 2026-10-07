@@ -30,7 +30,7 @@ async function makeConnectedClient() {
     weights: { impact: 0.35, exploitability: 0.25, exposure: 0.15, privilegeRequired: 0.15, detectionDifficulty: 0.10 },
     rounding: "round",
   };
-  const service = new AssessmentService(repo, () => NOW);
+  const service = new AssessmentService(repo, () => NOW, "0.9.0-test");
   const server = new McpServer({ name: "test", version: "0.0.0" });
   registerStartAssessmentRunTool(server, service);
   registerListControlsTool(server, service);
@@ -50,6 +50,21 @@ describe("assessment tools", () => {
     const result = await client.callTool({ name: "start_assessment_run", arguments: { projectId: "PRJ-1" } });
     expect(result.isError).toBeFalsy();
     expect((result.structuredContent as any).runId).toHaveLength(36);
+  });
+
+  it("start_assessment_run accepts an optional target and rejects a target object missing repository", async () => {
+    const { client } = await makeConnectedClient();
+    const ok = await client.callTool({
+      name: "start_assessment_run",
+      arguments: { projectId: "PRJ-1", target: { repository: "example/repo", commitSha: null, branchOrTag: null, dirty: null } },
+    });
+    expect(ok.isError).toBeFalsy();
+
+    const bad = await client.callTool({
+      name: "start_assessment_run",
+      arguments: { projectId: "PRJ-1", target: { commitSha: null, branchOrTag: null, dirty: null } },
+    });
+    expect(bad.isError).toBe(true);
   });
 
   it("list_controls returns summaries by default", async () => {

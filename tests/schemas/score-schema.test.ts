@@ -15,8 +15,8 @@ describe("score-schema", () => {
     notTestedCount: 2,
     notApplicableCount: 4,
     acceptedRiskCount: 1,
-    criticalFindings: 0,
-    highFindings: 1,
+    criticalSeverityFindings: 0,
+    highSeverityFindings: 1,
   };
 
   const valid = {
