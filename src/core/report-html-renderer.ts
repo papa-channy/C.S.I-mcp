@@ -35,22 +35,42 @@ function controlAnchorId(anchorByControlId: Map<string, string>, controlId: stri
 
 function renderHeader(model: PresentationModel): string {
   const verdictColor = VERDICT_COLORS[model.executive.verdict] ?? "#6b7280";
-  const t = model.metadata.target;
-  const targetBlock = t.available
-    ? `<p class="target">Target: <code>${text(t.repository ?? "")}</code>` +
-      (t.commitSha ? ` @ <code>${text(t.commitSha)}</code>` : "") +
-      (t.branchOrTag ? ` (${text(t.branchOrTag)})` : "") +
-      (t.dirty ? ` <span class="badge badge-warning">dirty working tree</span>` : "") +
-      `</p>`
-    : `<p class="target badge badge-info">Legacy assessment — target provenance unavailable</p>`;
-  return `<header>
+  return `<header><div class="header-inner">
   <h1>${text(model.metadata.projectName)}</h1>
   <p class="verdict" style="--verdict-color:${verdictColor}">${text(model.executive.verdict.toUpperCase())}</p>
-  ${targetBlock}
-  <p class="run-meta">Run <code>${text(model.metadata.assessmentRunId)}</code>${
-    model.metadata.engineVersionAtRunStart ? ` · engine ${text(model.metadata.engineVersionAtRunStart)}` : ""
-  } · generated ${text(model.metadata.reportGeneratedAt)}</p>
-</header>`;
+</div></header>`;
+}
+
+const TOC_ENTRIES: Array<{ href: string; label: string }> = [
+  { href: "#executive-summary", label: "Executive Summary" },
+  { href: "#domain-overview", label: "Domain Overview" },
+  { href: "#control-matrix", label: "Control Matrix" },
+  { href: "#findings", label: "Findings" },
+  { href: "#evidence-and-risk-acceptance", label: "Control Evidence & Risk Acceptance" },
+  { href: "#scope-methodology-limitations", label: "Scope & Limitations" },
+];
+
+function renderSidebar(model: PresentationModel): string {
+  const t = model.metadata.target;
+  const targetRow = t.available
+    ? `<dt>Target</dt><dd><code>${text(t.repository ?? "")}</code>${
+        t.commitSha ? ` @ <code>${text(t.commitSha)}</code>` : ""
+      }${t.branchOrTag ? ` (${text(t.branchOrTag)})` : ""}${
+        t.dirty ? ` <span class="badge badge-warning">dirty working tree</span>` : ""
+      }</dd>`
+    : `<dt>Target</dt><dd><span class="badge badge-info">Legacy assessment — target provenance unavailable</span></dd>`;
+  const toc = TOC_ENTRIES.map(
+    (e, i) => `<li><a href="${href(e.href)}" data-toc-link>${String(i + 1).padStart(2, "0")} ${text(e.label)}</a></li>`
+  ).join("");
+  return `<nav aria-label="Report sections">
+  <ol class="toc">${toc}</ol>
+  <dl class="sidebar-meta">
+    ${targetRow}
+    <dt>Run</dt><dd><code>${text(model.metadata.assessmentRunId)}</code></dd>
+    ${model.metadata.engineVersionAtRunStart ? `<dt>Engine</dt><dd>${text(model.metadata.engineVersionAtRunStart)}</dd>` : ""}
+    <dt>Generated</dt><dd>${text(model.metadata.reportGeneratedAt)}</dd>
+  </dl>
+</nav>`;
 }
 
 function renderExecutiveSummary(model: PresentationModel, anchorByControlId: Map<string, string>): string {
@@ -295,7 +315,18 @@ const REPORT_CSS = `
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.6; padding-inline: 16px; -webkit-font-smoothing: antialiased; overflow-wrap: anywhere; }
-header, main, footer, nav { max-width: 1040px; margin: 0 auto; }
+.layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 28px; max-width: 1240px; margin: 0 auto; align-items: start; }
+.content { min-width: 0; }
+nav[aria-label="Report sections"] { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; max-height: calc(100vh - 32px); overflow-y: auto; overflow-x: hidden; min-width: 0; }
+.toc { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.toc a { display: block; padding: 7px 10px; border-radius: 6px; font-size: 0.82rem; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+.toc a:hover { background: var(--status-na-bg); text-decoration: none; }
+.toc a[aria-current="true"] { background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent); }
+.sidebar-meta { display: block; margin: 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.78rem; }
+.sidebar-meta dt { color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; font-size: 0.68rem; margin-block: 8px 2px; }
+.sidebar-meta dt:first-child { margin-block-start: 0; }
+.sidebar-meta dd { margin: 0; }
+.sidebar-meta .badge { white-space: normal; text-align: left; }
 h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.01em; }
 h1 { font-size: 1.6rem; }
 h2 { font-size: 1.2rem; margin-block: 2rem 0.75rem; padding-block-start: 0.25rem; border-top: 1px solid var(--border); }
@@ -304,7 +335,8 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code { overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.9em; background: var(--status-na-bg); border-radius: 3px; padding: 0.1em 0.35em; }
 a:focus-visible, button:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
-header { background: var(--fg); color: #e7e9ee; padding-block: 1.5rem 1.25rem; margin-inline: -16px; padding-inline: 16px; }
+header { background: var(--fg); color: #e7e9ee; margin-inline: -16px; }
+.header-inner { max-width: 1240px; margin: 0 auto; padding-block: 1.5rem 1.25rem; padding-inline: 16px; }
 header h1 { color: #ffffff; margin-block: 0 0.5rem; }
 header code { background: rgba(255,255,255,0.1); color: inherit; }
 header a { color: #aeb9ff; }
@@ -365,11 +397,18 @@ tbody tr:last-child td { border-bottom: none; }
 .evidence-card p, .ra-card p { margin-block: 0.3rem; font-size: 0.85rem; }
 .missing-placeholder { border-style: dashed; }
 #findings-filter-status { color: var(--muted); font-size: 0.85rem; margin-block: 0.75rem; }
-dl:not(.kpi-grid) { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: 0.4rem 1rem; font-size: 0.9rem; }
-dl:not(.kpi-grid) dt { color: var(--muted); }
-dl:not(.kpi-grid) dd { margin: 0; }
+dl:not(.kpi-grid):not(.sidebar-meta) { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: 0.4rem 1rem; font-size: 0.9rem; }
+dl:not(.kpi-grid):not(.sidebar-meta) dt { color: var(--muted); }
+dl:not(.kpi-grid):not(.sidebar-meta) dd { margin: 0; }
 footer { color: var(--muted); font-size: 0.85rem; padding-block-end: 2rem; }
 footer h2 { font-size: 1.05rem; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; gap: 0; }
+  nav[aria-label="Report sections"] { position: sticky; top: env(safe-area-inset-top, 0px); max-height: none; overflow-y: visible; border-radius: 0; border: none; border-bottom: 1px solid var(--border); padding: 10px 0; margin-bottom: 1rem; }
+  .toc { flex-direction: row; overflow-x: auto; gap: 2px; margin-bottom: 0; }
+  .toc a { white-space: nowrap; }
+  .sidebar-meta { border-top: none; padding-top: 8px; }
+}
 @media (max-width: 400px) {
   .domain-row { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
@@ -377,8 +416,9 @@ footer h2 { font-size: 1.05rem; }
 @media print {
   nav, button, [data-filter] { display: none; }
   body { background: #fff; }
+  .layout { display: block; max-width: none; }
   header { background: #fff; color: #000; border-bottom: 2px solid #000; }
-  header h1, header a, .target, .run-meta { color: #000; }
+  header h1, header a { color: #000; }
   details:not([open]) > *:not(summary) { display: block !important; }
   /* Chromium (131+) renders a <details>'s non-summary content inside an internal
      ::details-content box that clips to zero block-size via content-visibility
@@ -435,8 +475,38 @@ const CLIENT_SCRIPT = `
     });
   }
 
+  function wireTocHighlight() {
+    var links = document.querySelectorAll("[data-toc-link]");
+    if (!links.length || typeof IntersectionObserver === "undefined") return;
+    var linkByTargetId = {};
+    links.forEach(function (link) {
+      var id = link.getAttribute("href").replace("#", "");
+      linkByTargetId[id] = link;
+      link.setAttribute("aria-current", "false");
+    });
+    var current = null;
+    var observer = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          var link = linkByTargetId[entry.target.id];
+          if (!link || link === current) return;
+          if (current) current.setAttribute("aria-current", "false");
+          link.setAttribute("aria-current", "true");
+          current = link;
+        });
+      },
+      { rootMargin: "-10% 0px -70% 0px" }
+    );
+    Object.keys(linkByTargetId).forEach(function (id) {
+      var section = document.getElementById(id);
+      if (section) observer.observe(section);
+    });
+  }
+
   if (typeof d3 !== "undefined" && document.getElementById("priority-criticality-scatter")) buildScatter();
   wireFindingsFilter();
+  wireTocHighlight();
 })();
 `;
 
@@ -471,20 +541,17 @@ export function renderReportHtml(model: PresentationModel, opts: { d3Source: str
 </head>
 <body>
 ${renderHeader(model)}
-<nav aria-label="Report sections">
-  <a href="#executive-summary">Executive Summary</a>
-  <a href="#domain-overview">Domain Overview</a>
-  <a href="#control-matrix">Control Matrix</a>
-  <a href="#findings">Findings</a>
-  <a href="#evidence-and-risk-acceptance">Control Evidence &amp; Risk Acceptance</a>
-  <a href="#scope-methodology-limitations">Scope &amp; Limitations</a>
-</nav>
+<div class="layout">
+${renderSidebar(model)}
+<div class="content">
 <main>
 ${main}
 </main>
 <footer>
 ${footerContent}
 </footer>
+</div>
+</div>
 <script type="application/json" id="report-data">${dataJson}</script>
 <script>${opts.d3Source}</script>
 <script>${CLIENT_SCRIPT}</script>
