@@ -72,7 +72,12 @@ export function readableReportName(reportId: string, generatedAt: string, verdic
 function listReportEntries(projectDir: string): ReportEntry[] {
   const reportsDir = join(projectDir, "reports");
   if (!existsSync(reportsDir)) return [];
-  const files = readdirSync(reportsDir).filter((f) => f.endsWith(".json"));
+  // Only real files, never a symlink this script created on a prior run (latest.json/.html,
+  // or an earlier readable-name alias) — otherwise a re-run would read a symlink's resolved
+  // content under its own link-name as "reportId", producing bogus self-referential aliases.
+  const files = readdirSync(reportsDir, { withFileTypes: true })
+    .filter((d) => d.isFile() && d.name.endsWith(".json"))
+    .map((d) => d.name);
   const entries = files.map((f) => {
     const reportId = f.replace(/\.json$/, "");
     const report = readJson<{ generatedAt?: string; reportSchemaVersion?: string; releaseEvaluation?: { result?: string } }>(join(reportsDir, f));
@@ -93,7 +98,11 @@ function listReportEntries(projectDir: string): ReportEntry[] {
 function listRunEntries(projectDir: string): { runId: string; status: string | null; startedAt: string | null; completedAt: string | null }[] {
   const runsDir = join(projectDir, "runs");
   if (!existsSync(runsDir)) return [];
-  const files = readdirSync(runsDir).filter((f) => f.endsWith(".json"));
+  // Same real-files-only guard as listReportEntries, defensively, in case a future version of
+  // this script ever adds navigation symlinks inside runs/ too.
+  const files = readdirSync(runsDir, { withFileTypes: true })
+    .filter((d) => d.isFile() && d.name.endsWith(".json"))
+    .map((d) => d.name);
   const entries = files.map((f) => {
     const run = readJson<{ status?: string; startedAt?: string | null; completedAt?: string | null }>(join(runsDir, f));
     return {

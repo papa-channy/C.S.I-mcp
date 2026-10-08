@@ -177,6 +177,17 @@ describe("reindexProjects", () => {
     expect(readlinkSync(linkPath)).toBe("prj-1");
   });
 
+  it("running twice never treats its own latest.json/latest.html or readable-name symlinks as a report (no bogus self-referential aliases)", () => {
+    writeProject("prj-1", "Demo", { reports: [{ reportId: "aaaaaaaa-0000-0000-0000-000000000000", generatedAt: "2026-10-08T00:00:00.000Z", verdict: "blocked", html: true }] });
+    reindexProjects(dir);
+    const firstRun = reindexProjects(dir);
+    const secondRun = reindexProjects(dir);
+    expect(secondRun.projects[0].latestReport?.reportId).toBe(firstRun.projects[0].latestReport?.reportId);
+    const reportsDir = join(dir, "projects", "prj-1", "reports");
+    expect(existsSync(join(reportsDir, "2026-10-08--blocked--latest.html"))).toBe(false);
+    expect(existsSync(join(reportsDir, "latest.html"))).toBe(true); // the real one must still exist
+  });
+
   it("repairs a slug symlink that points at a stale target (e.g. after a project's name changed)", () => {
     writeProject("prj-1", "Old Name");
     reindexProjects(dir);
