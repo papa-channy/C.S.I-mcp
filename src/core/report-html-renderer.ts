@@ -271,6 +271,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-u
 header, main, footer, nav { max-width: 960px; margin: 0 auto; }
 h1, h2, h3 { text-wrap: balance; }
 a { color: var(--accent); }
+code { overflow-wrap: anywhere; }
 a:focus-visible, button:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 nav { display: flex; flex-wrap: wrap; gap: 12px; padding-block: 12px; border-bottom: 1px solid var(--border); position: sticky; top: env(safe-area-inset-top, 0px); background: var(--bg); }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
@@ -304,6 +305,12 @@ th, td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left;
 @media print {
   nav, button { display: none; }
   details:not([open]) > *:not(summary) { display: block !important; }
+  /* Chromium (131+) renders a <details>'s non-summary content inside an internal
+     ::details-content box that clips to zero block-size via content-visibility
+     when the element is closed — overriding display on the slotted child above
+     is not enough on its own. Force that wrapper open too, so collapsed finding
+     cards still print their full content. */
+  details::details-content { content-visibility: visible !important; block-size: auto !important; overflow: visible !important; }
   .finding-card, .evidence-card, .ra-card { page-break-inside: avoid; }
   a { color: inherit; text-decoration: underline; }
   .bar-fill { print-color-adjust: exact; }

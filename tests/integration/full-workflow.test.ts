@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -19,6 +19,7 @@ import { registerRecordFindingTool } from "../../src/mcp/tools/record-finding.js
 import { registerGetScoreTool } from "../../src/mcp/tools/get-score.js";
 import { registerEvaluateReleaseTool } from "../../src/mcp/tools/evaluate-release.js";
 import { registerGenerateReportDataTool } from "../../src/mcp/tools/generate-report-data.js";
+import { registerGenerateReportHtmlTool } from "../../src/mcp/tools/generate-report-html.js";
 import { compileSchemaFromFile } from "../../src/validate.js";
 
 describe("full MCP workflow, against the real data/ catalog", () => {
@@ -38,7 +39,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     const projectService = new ProjectService(repository);
     const assessmentService = new AssessmentService(mixedRepository(repository, realCatalog), undefined, "0.9.0-test");
     const analysisService = new AnalysisService(mixedRepository(repository, realCatalog));
-    const reportService = new ReportService(mixedRepository(repository, realCatalog));
+    const reportService = new ReportService(mixedRepository(repository, realCatalog), undefined, readFileSync("src/assets/d3.v7.min.js", "utf-8"));
 
     registerCreateProjectTool(server, projectService);
     registerUpdateProjectProfileTool(server, projectService);
@@ -49,6 +50,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     registerGetScoreTool(server, analysisService);
     registerEvaluateReleaseTool(server, analysisService);
     registerGenerateReportDataTool(server, reportService);
+    registerGenerateReportHtmlTool(server, reportService);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: "test-client", version: "0.0.0" });
@@ -121,6 +123,19 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
     const valid = validate(reportPayload);
     expect(valid, JSON.stringify(validate.errors)).toBe(true);
+
+    const html = await client.callTool({
+      name: "generate_report_html",
+      arguments: { projectId, reportId: reportPayload.reportId },
+    });
+    expect(html.isError).toBeFalsy();
+    const htmlPayload = html.structuredContent as any;
+    expect(htmlPayload.path).toMatch(/\.html$/);
+    expect(htmlPayload.sourceReportSha256).toMatch(/^[0-9a-f]{64}$/);
+    const writtenHtml = readFileSync(htmlPayload.path, "utf-8");
+    expect(writtenHtml).toContain("<!doctype html>");
+    expect(writtenHtml).toContain("Content-Security-Policy");
+    expect(writtenHtml).toContain("Integration Demo");
   });
 });
 
