@@ -288,6 +288,27 @@ than silently dropped:
 - No Finding lifecycle tool exists beyond creation (no `update_finding`/`resolve_finding`) — by design, per the spec's explicit out-of-scope list; resolving a finding today means direct data editing.
 - An `AssessmentRun` is never marked `completed` — `start_assessment_run` sets `status: "running"` and nothing ever updates it, including `generate_report`, so every run in the data tree looks perpetually in-flight (schema-valid, but not semantically accurate).
 
+## Report presentation layer follow-up items (parked, not blocking)
+
+The `report-presentation-layer` cycle (`ProjectReport` 2.1, `PresentationModel`,
+`generate_report_html`) went through its own final whole-branch review, which caught and fixed
+one real deployment-breaking bug (`npm run build` never copied the vendored D3 asset into
+`dist/assets/`, so a built server crashed on startup) plus 4 other genuine bugs — all fixed and
+re-verified. What's left, explicitly deferred rather than silently dropped:
+
+- **Catalog-vs-user-data packaging split.** `data/` mixes git-tracked static catalog content
+  (`controls/`, `schemas/`, `core/`, `catalogs/`, `process/`, `manifest.json` — meant to ship
+  with the package) and gitignored mutable user data (`projects/`, `plans/` — must never ship,
+  can contain undisclosed third-party vulnerability findings) under one root, distinguished only
+  by `.gitignore`. `CSI_MCP_DATA_DIR` (`src/mcp/server.ts`) lets a deployment relocate the whole
+  `data/` root, but doesn't split the two concerns into independently configurable locations —
+  a real packaging/distribution design question for whenever this ships as an installable
+  package, not solved yet. See `CLAUDE.md` for the current handling convention.
+- `data/projects/<slug>` symlinks and the `INDEX.md`/`latest.json`/`latest.html` navigation aids
+  (`scripts/reindex-project-data.ts`) are pure local tooling with no orphan cleanup — if a
+  project's `name` changes, the old slug symlink is left in place pointing at the same
+  `projectId` (harmless, just clutter) rather than being removed.
+
 ## Next steps, in a reasonable order
 
 Two items previously listed here are now **done**: closing the Phase 2 gaps

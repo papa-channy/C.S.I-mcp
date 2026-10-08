@@ -40,7 +40,11 @@ function readD3Source(): string {
   return readFileSync(d3Path, "utf-8");
 }
 
-export function buildServer(dataDir = "data"): McpServer {
+// CSI_MCP_DATA_DIR lets a distributed/installed deployment point project data at a location
+// outside the installed package (e.g. ~/.csi-mcp/data) instead of a relative "data" dir that
+// would otherwise live inside wherever this package was unpacked. Unset in this repo's own
+// dev/test workflow, where the relative "data" default (this repo's own data/ tree) is correct.
+export function buildServer(dataDir = process.env.CSI_MCP_DATA_DIR ?? "data"): McpServer {
   const engineVersion = readEngineVersion();
   const repository = new JsonRepository(dataDir);
   const projectService = new ProjectService(repository);
