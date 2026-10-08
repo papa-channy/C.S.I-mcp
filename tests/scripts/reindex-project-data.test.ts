@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, lstatSync, readlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { slugify, deriveProjectSlug, reindexProjects } from "../../scripts/reindex-project-data.js";
+import { slugify, deriveProjectSlug, readableReportName, reindexProjects } from "../../scripts/reindex-project-data.js";
 
 let dir: string;
 
@@ -61,6 +61,16 @@ describe("deriveProjectSlug", () => {
   });
 });
 
+describe("readableReportName", () => {
+  it("formats as date--verdict--shortId, date first so Finder's alpha sort is also chronological", () => {
+    expect(readableReportName("53ff8774-2577-4191-9500-8f1df23687a6", "2026-10-08T15:39:21.812Z", "blocked")).toBe("2026-10-08--blocked--53ff8774");
+  });
+
+  it("falls back to no-date / no-verdict for missing data, without throwing", () => {
+    expect(readableReportName("53ff8774-2577-4191-9500-8f1df23687a6", "", null)).toBe("no-date--no-verdict--53ff8774");
+  });
+});
+
 describe("reindexProjects", () => {
   it("returns an empty project list and writes nothing when there is no projects directory", () => {
     const result = reindexProjects(dir);
@@ -111,6 +121,20 @@ describe("reindexProjects", () => {
     const htmlLink = join(dir, "projects", "prj-1", "reports", "latest.html");
     expect(readlinkSync(jsonLink)).toBe("rep-json-only.json");
     expect(readlinkSync(htmlLink)).toBe("rep-with-html.html");
+  });
+
+  it("creates a readable date--verdict--shortId symlink for every report that has an HTML rendering, leaving JSON-only reports unlinked", () => {
+    writeProject("prj-1", "Demo", {
+      reports: [
+        { reportId: "aaaaaaaa-1111-1111-1111-111111111111", generatedAt: "2026-10-01T00:00:00.000Z", verdict: "approved", html: true },
+        { reportId: "bbbbbbbb-2222-2222-2222-222222222222", generatedAt: "2026-10-05T00:00:00.000Z", verdict: "blocked" },
+      ],
+    });
+    reindexProjects(dir);
+    const reportsDir = join(dir, "projects", "prj-1", "reports");
+    expect(readlinkSync(join(reportsDir, "2026-10-01--approved--aaaaaaaa.html"))).toBe("aaaaaaaa-1111-1111-1111-111111111111.html");
+    expect(readlinkSync(join(reportsDir, "2026-10-01--approved--aaaaaaaa.json"))).toBe("aaaaaaaa-1111-1111-1111-111111111111.json");
+    expect(existsSync(join(reportsDir, "2026-10-05--blocked--bbbbbbbb.html"))).toBe(false);
   });
 
   it("does not create reports/latest.json when a project has no reports yet", () => {

@@ -14,7 +14,7 @@ export interface ProjectRecord {
   name: string;
   createdAt: string;
   runCount: number;
-  latestReport: { reportId: string; generatedAt: string; reportSchemaVersion: string | null; verdict: string | null; hasHtml: boolean } | null;
+  latestReport: ReportEntry | null;
 }
 
 export function slugify(text: string): string {
@@ -50,19 +50,41 @@ function readJson<T>(path: string): T | null {
   }
 }
 
-function listReportEntries(projectDir: string): { reportId: string; generatedAt: string; reportSchemaVersion: string | null; verdict: string | null; hasHtml: boolean }[] {
+export interface ReportEntry {
+  reportId: string;
+  generatedAt: string;
+  reportSchemaVersion: string | null;
+  verdict: string | null;
+  hasHtml: boolean;
+  readableName: string;
+}
+
+// A Finder-readable name for a report that actually has an HTML rendering — date first (so
+// Finder's default alpha sort is also chronological), then verdict (scannable without opening
+// the file), then an 8-char reportId prefix (uniqueness — two reports generated the same day
+// get distinct names). Never used as the file's real identity; it's a symlink name pointing at
+// the real <reportId>.html/.json, which stays the canonical, code-readable filename.
+export function readableReportName(reportId: string, generatedAt: string, verdict: string | null): string {
+  const date = /^\d{4}-\d{2}-\d{2}/.test(generatedAt) ? generatedAt.slice(0, 10) : "no-date";
+  return `${date}--${verdict ?? "no-verdict"}--${reportId.slice(0, 8)}`;
+}
+
+function listReportEntries(projectDir: string): ReportEntry[] {
   const reportsDir = join(projectDir, "reports");
   if (!existsSync(reportsDir)) return [];
   const files = readdirSync(reportsDir).filter((f) => f.endsWith(".json"));
   const entries = files.map((f) => {
     const reportId = f.replace(/\.json$/, "");
     const report = readJson<{ generatedAt?: string; reportSchemaVersion?: string; releaseEvaluation?: { result?: string } }>(join(reportsDir, f));
+    const generatedAt = report?.generatedAt ?? "";
+    const verdict = report?.releaseEvaluation?.result ?? null;
     return {
       reportId,
-      generatedAt: report?.generatedAt ?? "",
+      generatedAt,
       reportSchemaVersion: report?.reportSchemaVersion ?? null,
-      verdict: report?.releaseEvaluation?.result ?? null,
+      verdict,
       hasHtml: existsSync(join(reportsDir, `${reportId}.html`)),
+      readableName: readableReportName(reportId, generatedAt, verdict),
     };
   });
   return entries.sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : 0));
@@ -162,7 +184,7 @@ export function reindexProjects(dataDir: string): { projects: ProjectRecord[] } 
       "",
       mdTable(
         ["Report ID", "Generated At", "Schema", "Verdict", "HTML"],
-        reportEntries.map((r) => [`\`${r.reportId}\``, r.generatedAt || "—", r.reportSchemaVersion ?? "—", r.verdict ?? "—", r.hasHtml ? `[yes](${r.reportId}.html)` : "—"])
+        reportEntries.map((r) => [`\`${r.reportId}\``, r.generatedAt || "—", r.reportSchemaVersion ?? "—", r.verdict ?? "—", r.hasHtml ? `[${r.readableName}.html](${r.readableName}.html)` : "—"])
       ),
       "",
     ].join("\n");
@@ -190,6 +212,14 @@ export function reindexProjects(dataDir: string): { projects: ProjectRecord[] } 
     const latestWithHtml = reportEntries.find((r) => r.hasHtml);
     if (latestWithHtml) {
       ensureSymlink(join(projectDir, "reports", "latest.html"), `${latestWithHtml.reportId}.html`);
+    }
+    // Readable-name symlinks (date--verdict--shortId) for every report with an HTML rendering,
+    // so Finder shows scannable names instead of bare reportId UUIDs. The real <reportId>.json/
+    // .html files are untouched and remain the canonical, code-addressed filenames.
+    for (const r of reportEntries) {
+      if (!r.hasHtml) continue;
+      ensureSymlink(join(projectDir, "reports", `${r.readableName}.html`), `${r.reportId}.html`);
+      ensureSymlink(join(projectDir, "reports", `${r.readableName}.json`), `${r.reportId}.json`);
     }
 
     // Human-readable slug symlink at the top level: data/projects/<slug> -> <projectId>/
