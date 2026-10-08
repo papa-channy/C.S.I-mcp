@@ -97,9 +97,14 @@ describe("ReportService.generate — freshness-aware trust translation", () => {
 
 class CountingRepository extends FakeRepository {
   getFindingsCallCount = 0;
+  getRiskAcceptancesCallCount = 0;
   override async getFindings(projectId: string) {
     this.getFindingsCallCount++;
     return super.getFindings(projectId);
+  }
+  override async getRiskAcceptances(projectId: string) {
+    this.getRiskAcceptancesCallCount++;
+    return super.getRiskAcceptances(projectId);
   }
 }
 
@@ -173,5 +178,75 @@ describe("ReportService.generate — projectFindingSnapshots is project-scoped, 
     const service = new ReportService(repo, () => NOW);
     const reportForEarlierRun = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
     expect(reportForEarlierRun.projectFindingSnapshots.map((f) => f.findingId)).toContain("FND-001");
+  });
+});
+
+describe("ReportService.generate — evidenceSnapshots/riskAcceptanceSnapshots scoping and single-fetch invariant", () => {
+  it("populates evidenceSnapshots/riskAcceptanceSnapshots from referenced control assessments, and asserts getRiskAcceptances called exactly once", async () => {
+    const repo = new CountingRepository();
+    await makeGeneratableProject(repo); // creates RUN-1 with 8 blocking-control assessments
+
+    // Save evidence and risk acceptance records
+    await repo.saveEvidence("PRJ-1", {
+      evidenceId: "EVD-001", type: "CODE", location: "src/auth.ts:42",
+      capturedAt: NOW, capturedBy: "csi-mcp-agent", description: "Auth handler implementation",
+    });
+    await repo.saveEvidence("PRJ-1", {
+      evidenceId: "EVD-UNREFERENCED", type: "CODE", location: "src/unused.ts:1",
+      capturedAt: NOW, capturedBy: "csi-mcp-agent",
+    });
+
+    const [firstBlockingControl] = [...RELEASE_BLOCKING_CONTROLS];
+    await repo.saveRiskAcceptance("PRJ-1", {
+      riskAcceptanceId: "RA-001", projectId: "PRJ-1", controlId: firstBlockingControl, findingIds: [],
+      reason: "Acceptable residual risk", compensatingControls: ["CTRL-002"], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-09-01T00:00:00.000Z", expiresAt: "2026-12-01T00:00:00.000Z",
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    });
+    await repo.saveRiskAcceptance("PRJ-1", {
+      riskAcceptanceId: "RA-UNREFERENCED", projectId: "PRJ-1", controlId: "CTRL-UNRELATED", findingIds: [],
+      reason: "Not referenced", compensatingControls: [], approvedBy: "csi-mcp-agent",
+      approvedAt: "2026-09-01T00:00:00.000Z", expiresAt: "2026-12-01T00:00:00.000Z",
+      reviewDate: null, status: "active", revokedAt: null, revokedReason: null,
+    });
+
+    // Link evidence and risk acceptance to the first blocking control assessment
+    const assessments = await repo.getControlAssessments("PRJ-1");
+    const firstBlockingAssessment = assessments.find((a) => a.controlId === firstBlockingControl);
+    if (firstBlockingAssessment) {
+      await repo.saveControlAssessment({
+        ...firstBlockingAssessment,
+        evidenceIds: ["EVD-001"],
+        riskAcceptanceId: "RA-001",
+      });
+    }
+
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+
+    // Assert evidenceSnapshots includes only referenced evidence
+    expect(report.evidenceSnapshots.map((e) => e.evidenceId)).toEqual(["EVD-001"]);
+    expect(report.evidenceSnapshots[0].type).toBe("CODE");
+    expect(report.evidenceSnapshots[0].location).toBe("src/auth.ts:42");
+    expect(report.evidenceSnapshots[0].description).toBe("Auth handler implementation");
+    expect(report.evidenceSnapshots[0].capturedBy).toBe("csi-mcp-agent");
+
+    // Assert riskAcceptanceSnapshots includes only referenced risk acceptance
+    expect(report.riskAcceptanceSnapshots.map((r) => r.riskAcceptanceId)).toEqual(["RA-001"]);
+    expect(report.riskAcceptanceSnapshots[0].controlId).toBe(firstBlockingControl);
+    expect(report.riskAcceptanceSnapshots[0].reason).toBe("Acceptable residual risk");
+    expect(report.riskAcceptanceSnapshots[0].status).toBe("active");
+    expect("projectId" in report.riskAcceptanceSnapshots[0]).toBe(false); // projectId stripped
+
+    // Assert assessmentScopes has the expected structure
+    expect(report.assessmentScopes.projectFindingSnapshots).toEqual({ kind: "project" });
+    expect(report.assessmentScopes.runControlAssessmentSnapshots).toEqual({ kind: "run", runId: "RUN-1" });
+    expect(report.assessmentScopes.evidenceSnapshots).toEqual({ kind: "referenced-by-run", runId: "RUN-1" });
+    expect(report.assessmentScopes.riskAcceptanceSnapshots).toEqual({ kind: "referenced-by-run", runId: "RUN-1" });
+    expect(report.assessmentScopes.score).toEqual({ kind: "project-assessment-set", contributingRunIds: ["RUN-1"] });
+    expect(report.assessmentScopes.releaseEvaluation).toEqual({ kind: "project-assessment-set", contributingRunIds: ["RUN-1"] });
+
+    // Assert getRiskAcceptances was called exactly once (same-array invariant)
+    expect(repo.getRiskAcceptancesCallCount).toBe(1);
   });
 });
