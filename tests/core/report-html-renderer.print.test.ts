@@ -21,8 +21,19 @@ function sampleReport(): ProjectReport {
       scoreModel: { id: "x", version: "1.0.0" },
       domainScores: [{ domain: "appsec", score: 100, totalControls: 1, applicableControls: 1, assessedControls: 1, coveragePercent: 100, passCount: 1, failCount: 0, partialCount: 0, notTestedCount: 0, notApplicableCount: 0, acceptedRiskCount: 0, criticalSeverityFindings: 0, highSeverityFindings: 0 }],
     },
-    prioritizedFindings: [{ findingId: "FND-1", priorityIndex: 0, criticalityIndex: 5, title: "Sample finding" }],
-    projectFindingSnapshots: [{ findingId: "FND-1", title: "Sample finding", type: "control_gap", severity: "medium", controlIds: ["CTRL-001"], status: "open", priorityIndex: 0, criticalityIndex: 5 }],
+    // Three findings, with FND-1's priority/criticality diverging by more than 1 — the
+    // renderer only shows the Prioritization Map when there are >= 3 findings AND at least one
+    // shows meaningful priority/criticality divergence (see showPriorityMap in report-html-renderer.ts).
+    prioritizedFindings: [
+      { findingId: "FND-1", priorityIndex: 0, criticalityIndex: 5, title: "Sample finding" },
+      { findingId: "FND-2", priorityIndex: 3, criticalityIndex: 3, title: "Second sample finding" },
+      { findingId: "FND-3", priorityIndex: 6, criticalityIndex: 6, title: "Third sample finding" },
+    ],
+    projectFindingSnapshots: [
+      { findingId: "FND-1", title: "Sample finding", type: "control_gap", severity: "medium", controlIds: ["CTRL-001"], status: "open", priorityIndex: 0, criticalityIndex: 5 },
+      { findingId: "FND-2", title: "Second sample finding", type: "control_gap", severity: "low", controlIds: [], status: "open", priorityIndex: 3, criticalityIndex: 3 },
+      { findingId: "FND-3", title: "Third sample finding", type: "control_gap", severity: "low", controlIds: [], status: "open", priorityIndex: 6, criticalityIndex: 6 },
+    ],
     releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" },
     target: null, profileSnapshot: null, engineVersionAtRunStart: null,
     reportSchemaVersion: "2.1.0", summary: "ok",

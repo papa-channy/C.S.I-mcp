@@ -45,6 +45,24 @@ function domainLabel(domain: string): string {
   return domain.split("_").map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
 }
 
+// Humanizes a snake_case/raw enum value for customer-facing display, e.g. "control_gap" ->
+// "Control gap" (sentence case, not title case — only the first letter is capitalized).
+function humanizeEnum(value: string): string {
+  const words = value.toLowerCase().split("_").join(" ");
+  return words.length ? words[0].toUpperCase() + words.slice(1) : words;
+}
+
+// Deterministic, timezone-pinned date formatting: the renderer is a pure function of its input,
+// so this must never depend on the host machine's locale or timezone. Raw ISO strings remain
+// available verbatim in the Provenance block for anyone who needs the exact machine-readable value.
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(d);
+  const time = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }).format(d);
+  return `${date}, ${time} UTC`;
+}
+
 // A control reassessed mid-run produces two ControlRow entries sharing one controlId (see
 // AssessmentService.recordAssessment, which mints a fresh assessmentId per call with no dedupe
 // on (runId, controlId)). This map resolves controlId -> its most-recently-assessed ControlRow,
@@ -96,11 +114,10 @@ const TOC_ENTRIES: Array<{ href: string; label: string }> = [
   { href: "#scope-methodology-limitations", label: "Scope & Limitations" },
 ];
 
-function renderSidebar(model: PresentationModel): string {
-  const t = model.metadata.target;
-  const metaLine = t.available
-    ? `<code>${text(t.repository ?? "")}</code>${t.branchOrTag ? ` <span aria-hidden="true">·</span> ${text(t.branchOrTag)}` : ""}${t.commitSha ? ` <span aria-hidden="true">@</span> <code>${text(t.commitSha)}</code>` : ""}`
-    : `<span class="badge badge-info">Legacy — provenance unavailable</span>`;
+function renderSidebar(): string {
+  // Target/run metadata lives in the header (identity) and Scope's provenance block (audit
+  // detail) only — a third copy here was pure duplication, most visible on mobile where it
+  // pushed Executive Summary most of a screen's height further down.
   const toc = TOC_ENTRIES.map(
     (e, i) => `<li><a href="${href(e.href)}" data-toc-link data-toc-label="${attr(`${String(i + 1).padStart(2, "0")} ${e.label}`)}">${String(i + 1).padStart(2, "0")} ${text(e.label)}</a></li>`
   ).join("");
@@ -109,7 +126,6 @@ function renderSidebar(model: PresentationModel): string {
     <summary><span>Sections</span><span class="nav-toggle__current" data-toc-current>${text(TOC_ENTRIES[0].label)}</span></summary>
     <ol class="toc">${toc}</ol>
   </details>
-  <p class="sidebar-meta">${metaLine}</p>
 </nav>`;
 }
 
@@ -147,7 +163,7 @@ function renderExecutiveSummary(model: PresentationModel, latest: Map<string, Co
   const topFinding = e.topPrioritizedFinding
     ? `<a class="priority-finding" href="${href(`#finding-${e.topPrioritizedFinding.findingId}`)}">
       <span class="severity severity--${attr(e.topPrioritizedFinding.severity)}">${text(e.topPrioritizedFinding.severity)}</span>
-      <span class="priority-finding__body"><strong>${text(e.topPrioritizedFinding.title)}</strong><span>${text(e.topPrioritizedFinding.findingId)} · ${text(e.topPrioritizedFinding.type)}</span></span>
+      <span class="priority-finding__body"><strong>${text(e.topPrioritizedFinding.title)}</strong><span>${text(e.topPrioritizedFinding.findingId)} · ${text(humanizeEnum(e.topPrioritizedFinding.type))}</span></span>
       <span class="priority-finding__arrow" aria-hidden="true">→</span>
     </a>`
     : `<p>No prioritized findings.</p>`;
@@ -217,7 +233,7 @@ function renderControlMatrix(model: PresentationModel): string {
       currentDomain = c.domain;
       const stat = domainStats.get(c.domain)!;
       const label = c.domain !== null ? domainLabel(c.domain) : "Unmapped controls";
-      rows.push(`<tr class="domain-group"><th scope="rowgroup" colspan="6"><span>${text(label)}</span><span class="domain-group__stat numeric">${stat.passed} / ${stat.total} passed</span></th></tr>`);
+      rows.push(`<tr class="domain-group"><th scope="rowgroup" colspan="6"><div class="domain-group__row"><span>${text(label)}</span><span class="domain-group__stat numeric">${stat.passed} passed · ${stat.total} control${stat.total === 1 ? "" : "s"}</span></div></th></tr>`);
     }
 
     const reasonCell = c.effectiveStatusReason ? text(c.effectiveStatusReason.detail ?? c.effectiveStatusReason.label) : "—";
@@ -265,7 +281,12 @@ function renderFindings(model: PresentationModel, latest: Map<string, ControlRow
   const knownControlIds = new Set(model.controls.map((c) => c.controlId));
   const openCount = model.findings.filter((f) => f.status === "open" || f.status === "in_progress").length;
   const cards = model.findings.map((f) => renderFindingCard(f, knownControlIds, latest)).join("");
-  const showPriorityMap = model.findings.length > 0;
+  // A scatter of N points is only informative if priority and criticality actually diverge for
+  // at least one finding — when every point sits on (or near) the diagonal, the chart repeats
+  // what the list above it already says (in exact numbers, not approximate position) and just
+  // spends space. Below 3 findings there's nothing to compare in the first place.
+  const hasMeaningfulDivergence = model.findings.some((f) => Math.abs(f.priorityIndex - f.criticalityIndex) >= 2);
+  const showPriorityMap = model.findings.length >= 3 && hasMeaningfulDivergence;
 
   return `<section id="findings" aria-labelledby="findings-heading">
   <h2 id="findings-heading">Findings</h2>
@@ -301,7 +322,7 @@ function renderFindingCard(f: PresentationModel["findings"][number], knownContro
         </span>
       </summary>
       <dl class="finding-facts">
-        <div><dt>Finding type</dt><dd>${text(f.type)}</dd></div>
+        <div><dt>Finding type</dt><dd>${text(humanizeEnum(f.type))}</dd></div>
         <div><dt>Priority index</dt><dd class="numeric">${f.priorityIndex} / 9</dd></div>
         <div><dt>Criticality index</dt><dd class="numeric">${f.criticalityIndex} / 9</dd></div>
         <div><dt>Linked controls</dt><dd>${linkedControls}</dd></div>
@@ -331,10 +352,9 @@ function renderEvidenceAndRiskAcceptance(model: PresentationModel, latest: Map<s
     .map((e) => {
       const refs = (controlsByEvidenceId.get(e.evidenceId) ?? []).map((id) => `<a href="${href(`#control-${controlAnchor(latest, id)}`)}">${text(id)}</a>`).join(", ") || "—";
       return `<article id="evidence-${attr(e.evidenceId)}" class="evidence-record">
-      <header><strong>${text(e.evidenceId)}</strong><span class="badge">${text(e.type)}</span></header>
-      <code class="evidence-location">${text(e.location)}</code>
+      <header><strong>${text(e.evidenceId)}</strong><span class="badge">${text(humanizeEnum(e.type))}</span><code class="evidence-location">${text(e.location)}</code></header>
       ${e.description ? `<p>${text(e.description)}</p>` : ""}
-      <footer class="record-meta">Captured by ${text(e.capturedBy)} · ${text(e.capturedAt)} · Referenced by ${refs}</footer>
+      <footer class="record-meta">${text(e.capturedBy)} · ${text(formatDateTime(e.capturedAt))} · Referenced by ${refs}</footer>
     </article>`;
     })
     .join("");
@@ -348,12 +368,12 @@ function renderEvidenceAndRiskAcceptance(model: PresentationModel, latest: Map<s
       <p class="risk-rationale">${text(r.reason)}</p>
       <dl class="record-facts">
         <div><dt>Approved by</dt><dd>${text(r.approvedBy)}</dd></div>
-        <div><dt>Approved</dt><dd>${text(r.approvedAt)}</dd></div>
-        <div><dt>Expires</dt><dd>${text(r.expiresAt)}</dd></div>
-        ${r.compensatingControls.length ? `<div><dt>Compensating controls</dt><dd>${r.compensatingControls.map((c) => text(c)).join(", ")}</dd></div>` : ""}
+        <div><dt>Approved</dt><dd>${text(formatDateTime(r.approvedAt))}</dd></div>
+        <div><dt>Expires</dt><dd>${text(formatDateTime(r.expiresAt))}</dd></div>
+        <div><dt>Compensating controls</dt><dd>${r.compensatingControls.length ? r.compensatingControls.map((c) => text(c)).join(", ") : "—"}</dd></div>
       </dl>
-      ${r.revokedAt ? `<p class="badge badge-warning">Revoked ${text(r.revokedAt)}${r.revokedReason ? `: ${text(r.revokedReason)}` : ""}</p>` : ""}
-      <footer class="record-meta">Referenced by ${refs}</footer>
+      ${r.revokedAt ? `<p class="badge badge-warning">Revoked ${text(formatDateTime(r.revokedAt))}${r.revokedReason ? `: ${text(r.revokedReason)}` : ""}</p>` : ""}
+      <footer class="record-meta">Applies to ${refs}</footer>
     </article>`;
     })
     .join("");
@@ -415,11 +435,11 @@ function renderScopeMethodologyLimitations(model: PresentationModel): string {
 
   const genuineLimitations = model.limitations.filter((l) => !INTEGRITY_LIMITATION_CODES.has(l.code));
   const limitationItems = genuineLimitations.length
-    ? `<ul class="limitation-list">${genuineLimitations.map((l) => `<li><span class="label label--${attr(l.severity)}">${text(l.severity)}</span> ${text(l.message)}</li>`).join("")}</ul>`
+    ? `<ul class="limitation-list">${genuineLimitations.map((l) => `<li>${text(l.message)}</li>`).join("")}</ul>`
     : `<p>No assessment limitations were recorded.</p>`;
 
   return `<section id="scope-methodology-limitations" aria-labelledby="scope-methodology-limitations-heading">
-  <h2 id="scope-methodology-limitations-heading">Scope, Methodology &amp; Limitations</h2>
+  <h2 id="scope-methodology-limitations-heading">Scope &amp; Limitations</h2>
   <h3>Assessment scope</h3>
   ${customerScope}
   <details class="technical-details"><summary>Technical scope mapping</summary><dl>${technicalScope}</dl></details>
@@ -449,12 +469,15 @@ function renderScopeMethodologyLimitations(model: PresentationModel): string {
 function renderTerminology(): string {
   return `<section id="terminology" aria-labelledby="terminology-heading">
   <h2 id="terminology-heading">Terminology</h2>
-  <dl>
-    <dt>Finding Verification</dt>
-    <dd>The attack scenario and exploitability evidence attached to a <em>Finding</em> — how this specific vulnerability was confirmed, shown in the Findings section.</dd>
-    <dt>Control Assessment Evidence</dt>
-    <dd>The evidence records attached to a <em>ControlAssessment</em> — what was examined to reach a control's PASS/FAIL/PARTIAL verdict, shown in the Control Evidence &amp; Risk Acceptance section. A different concept from Finding Verification above, even though both are informally "evidence."</dd>
-  </dl>
+  <details class="terminology">
+    <summary>Finding Verification vs. Control Assessment Evidence</summary>
+    <dl>
+      <dt>Finding Verification</dt>
+      <dd>The attack scenario and exploitability evidence attached to a <em>Finding</em> — how this specific vulnerability was confirmed, shown in the Findings section.</dd>
+      <dt>Control Assessment Evidence</dt>
+      <dd>The evidence records attached to a <em>ControlAssessment</em> — what was examined to reach a control's PASS/FAIL/PARTIAL verdict, shown in the Control Evidence &amp; Risk Acceptance section. A different concept from Finding Verification above, even though both are informally "evidence."</dd>
+    </dl>
+  </details>
 </section>`;
 }
 
@@ -507,8 +530,6 @@ body > header { background: #11151c; color: var(--text-inverse); margin-inline: 
 .severity--medium { background: var(--severity-medium-bg); color: var(--severity-medium); }
 .severity--low { background: var(--severity-low-bg); color: var(--severity-low); }
 .label { display: inline-flex; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15em 0.5em; border-radius: 4px; }
-.label--info { background: var(--brand-soft); color: var(--brand); }
-.label--warning { background: var(--status-partial-bg); color: var(--status-partial); }
 
 nav[aria-label="Report sections"] { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; min-width: 0; }
 .nav-toggle { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 6px; }
@@ -542,11 +563,13 @@ nav[aria-label="Report sections"] { position: sticky; top: calc(env(safe-area-in
 .metric-strip__sub { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
 
 .decision-drivers { margin-top: 18px; }
-.decision-driver-list { display: flex; flex-direction: column; gap: 6px; }
-.decision-driver { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); }
+.decision-driver-list { display: flex; flex-direction: column; gap: 4px; }
+.decision-driver { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; color: var(--text); }
 .decision-driver:hover { background: var(--surface-subtle); text-decoration: none; }
-.decision-driver__body { display: flex; flex-direction: column; gap: 1px; font-size: 0.88rem; }
-.decision-driver__body span { color: var(--text-secondary); font-size: 0.85rem; }
+.decision-driver .status { flex: none; min-width: 92px; justify-content: center; }
+.decision-driver__body { display: flex; align-items: baseline; gap: 8px; font-size: 0.88rem; flex-wrap: wrap; min-width: 0; }
+.decision-driver__body strong { flex: none; }
+.decision-driver__body span { color: var(--text-secondary); font-size: 0.85rem; overflow-wrap: anywhere; }
 
 .priority-finding { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); }
 .priority-finding:hover { background: var(--surface-subtle); text-decoration: none; }
@@ -573,7 +596,8 @@ th, td { border-bottom: 1px solid var(--border); padding: 10px 14px; text-align:
 thead th { background: var(--surface-subtle); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); position: sticky; top: 0; }
 tbody tr:hover:not(.domain-group) { background: var(--surface-subtle); }
 tbody tr:last-child td { border-bottom: none; }
-tr.domain-group th { background: var(--page); color: var(--text-secondary); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; display: flex; justify-content: space-between; gap: 12px; }
+tr.domain-group th { background: var(--page); color: var(--text-secondary); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; padding-block: 8px; }
+.domain-group__row { display: flex; justify-content: space-between; gap: 12px; }
 .control-id { display: block; font-family: var(--mono); font-size: 0.78rem; color: var(--text-secondary); }
 .control-title { display: block; font-weight: 600; font-size: 0.88rem; margin-top: 1px; }
 .recorded-status { color: var(--text-tertiary); }
@@ -600,26 +624,31 @@ tr.domain-group th { background: var(--page); color: var(--text-secondary); font
 .finding-card summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; list-style: none; }
 .finding-card summary::-webkit-details-marker { display: none; }
 .finding-card .finding-title { font-weight: 600; }
-.finding-summary__secondary { font-size: 0.82rem; color: var(--text-secondary); display: flex; gap: 6px; }
-.finding-summary__right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.finding-summary__primary { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1 1 260px; }
+.finding-summary__primary .finding-title { overflow-wrap: anywhere; }
+.finding-summary__secondary { font-size: 0.82rem; color: var(--text-secondary); display: flex; gap: 6px; flex: none; }
+.finding-summary__right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
 .index-pair { font-size: 0.78rem; color: var(--text-tertiary); }
 #priority-criticality-scatter { display: block; width: 100%; max-width: 520px; height: auto; color: var(--text-secondary); }
-.finding-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 0.9rem; margin-block: 0.9rem 0; font-size: 0.87rem; }
-.finding-facts dt { color: var(--text-secondary); }
-.finding-facts dd { margin: 0; }
+.finding-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem 1rem; margin-block: 0.9rem 0; font-size: 0.87rem; }
+.finding-facts dt { color: var(--text-secondary); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.finding-facts dd { margin: 0.15rem 0 0; }
 .finding-narrative { background: var(--surface-subtle); border-radius: 8px; padding: 12px 14px; margin-top: 10px; }
 .finding-narrative__label { margin: 0 0 4px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-secondary); }
 .finding-narrative p:last-child { margin-bottom: 0; }
 
-.record-list { display: flex; flex-direction: column; gap: 10px; }
-.evidence-record, .risk-acceptance-record { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; min-width: 0; }
-.evidence-record header, .risk-acceptance-record header { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 0.85rem; margin-bottom: 6px; }
-.evidence-location { display: block; margin-bottom: 6px; }
-.risk-rationale { margin: 0 0 10px; }
-.record-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 0.9rem; font-size: 0.85rem; }
-.record-facts dt { color: var(--text-secondary); }
-.record-facts dd { margin: 0; }
-.record-meta { margin-top: 8px; font-size: 0.78rem; color: var(--text-tertiary); }
+.record-list { display: flex; flex-direction: column; gap: 8px; }
+.evidence-record, .risk-acceptance-record { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-width: 0; }
+.evidence-record header, .risk-acceptance-record header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: var(--mono); font-size: 0.82rem; margin-bottom: 4px; }
+.evidence-record header code.evidence-location { margin: 0; }
+.risk-rationale { margin: 0 0 8px; }
+.record-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem 1rem; font-size: 0.85rem; }
+.record-facts dt { color: var(--text-secondary); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.record-facts dd { margin: 0.1rem 0 0; }
+.record-meta { margin-top: 6px; font-size: 0.78rem; color: var(--text-tertiary); }
+@media (max-width: 480px) {
+  .finding-facts, .record-facts { grid-template-columns: repeat(2, 1fr); }
+}
 
 .integrity-list { padding-left: 1.2em; }
 .integrity-list li { margin-block: 4px; color: var(--status-partial); }
@@ -641,7 +670,7 @@ footer h2 { font-size: 1.1rem; }
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; gap: 0; }
   nav[aria-label="Report sections"] { position: static; margin-bottom: 1.25rem; }
-  .nav-toggle summary { cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .nav-toggle summary { cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   .nav-toggle__current { font-weight: 400; color: var(--text-secondary); font-size: 0.8rem; }
   .domain-row { grid-template-columns: 1fr; gap: 4px; }
   .domain-row__coverage { text-align: left; }
@@ -668,6 +697,8 @@ footer h2 { font-size: 1.1rem; }
   thead { display: table-header-group; }
   .finding-card, .evidence-record, .risk-acceptance-record, tr { break-inside: avoid; }
   a { color: inherit; text-decoration: underline; }
+  a[href^="#"] { text-decoration: none; }
+  .priority-finding__arrow { display: none; }
   .score-bar span, .verdict, .status, .severity, .badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 `;
@@ -806,7 +837,7 @@ export function renderReportHtml(model: PresentationModel, opts: { d3Source: str
 <body>
 ${renderHeader(model)}
 <div class="layout">
-${renderSidebar(model)}
+${renderSidebar()}
 <div class="content">
 <main>
 ${main}
