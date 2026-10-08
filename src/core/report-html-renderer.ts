@@ -83,6 +83,23 @@ function controlDisplayTitle(latest: Map<string, ControlRow>, controlId: string)
   return latest.get(controlId)?.title ?? controlId;
 }
 
+// projectName is caller-supplied free text the renderer must otherwise treat as opaque — this
+// project's own naming convention often appends a "(owner/repo)" parenthetical AND further
+// human-distinguishing text (e.g. "... — v2 re-assessment", "... — blind pinned-commit
+// re-assessment (<sha>, <date>)") used to tell apart repeated assessments of the same
+// repository. The target line directly below the H1 already states the repository, so only
+// that exact "(owner/repo)" substring is stripped here — never a generic parenthetical regex,
+// which would just as easily eat the distinguishing suffix this convention depends on.
+function displayProjectName(model: PresentationModel): string {
+  const name = model.metadata.projectName;
+  const t = model.metadata.target;
+  if (!t.available || !t.repository) return name;
+  const marker = `(${t.repository})`;
+  const idx = name.indexOf(marker);
+  if (idx === -1) return name;
+  return (name.slice(0, idx) + name.slice(idx + marker.length)).replace(/\s{2,}/g, " ").trim();
+}
+
 function renderHeader(model: PresentationModel): string {
   const t = model.metadata.target;
   const verdict = model.executive.verdict;
@@ -95,7 +112,7 @@ function renderHeader(model: PresentationModel): string {
   return `<header><div class="header-inner">
   <div class="header-identity">
     <p class="eyebrow">Security Assessment Report</p>
-    <h1>${text(model.metadata.projectName)}</h1>
+    <h1>${text(displayProjectName(model))}</h1>
     <p class="target-line">${targetLine}</p>
   </div>
   <div class="header-verdict">
