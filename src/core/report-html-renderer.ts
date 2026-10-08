@@ -10,6 +10,29 @@ export const REPORT_HTML_RENDERER_VERSION = "1.0.0";
 
 const VERDICT_COLORS: Record<string, string> = { approved: "#1b7f3a", blocked: "#c0392b", indeterminate: "#b7791f" };
 
+// Control row HTML anchors are keyed on assessmentId, not controlId: a control reassessed
+// mid-run produces two ControlRow entries sharing one controlId (see AssessmentService.recordAssessment,
+// which mints a fresh assessmentId per call with no dedupe on (runId, controlId)). Keying anchors on
+// controlId alone would collide into a duplicate `id` attribute, leaving every `#control-X` link
+// ambiguous. This map resolves controlId -> the assessmentId of its most-recently-assessed row, for
+// every place that links to a control by controlId rather than iterating ControlRow objects directly.
+function buildControlAnchorMap(model: PresentationModel): Map<string, string> {
+  const anchorByControlId = new Map<string, string>();
+  const latestAssessedAtByControlId = new Map<string, string>();
+  for (const c of model.controls) {
+    const currentLatest = latestAssessedAtByControlId.get(c.controlId);
+    if (currentLatest === undefined || c.assessedAt > currentLatest) {
+      latestAssessedAtByControlId.set(c.controlId, c.assessedAt);
+      anchorByControlId.set(c.controlId, c.assessmentId);
+    }
+  }
+  return anchorByControlId;
+}
+
+function controlAnchorId(anchorByControlId: Map<string, string>, controlId: string): string {
+  return anchorByControlId.get(controlId) ?? controlId;
+}
+
 function renderHeader(model: PresentationModel): string {
   const verdictColor = VERDICT_COLORS[model.executive.verdict] ?? "#6b7280";
   const t = model.metadata.target;
@@ -30,13 +53,13 @@ function renderHeader(model: PresentationModel): string {
 </header>`;
 }
 
-function renderExecutiveSummary(model: PresentationModel): string {
+function renderExecutiveSummary(model: PresentationModel, anchorByControlId: Map<string, string>): string {
   const e = model.executive;
   const failuresList = e.blockingControlFailures.length
-    ? `<ul>${e.blockingControlFailures.map((id) => `<li><a href="${href(`#control-${id}`)}">${text(id)}</a></li>`).join("")}</ul>`
+    ? `<ul>${e.blockingControlFailures.map((id) => `<li><a href="${href(`#control-${controlAnchorId(anchorByControlId, id)}`)}">${text(id)}</a></li>`).join("")}</ul>`
     : `<p>None.</p>`;
   const notVerifiedList = e.blockingControlsNotVerified.length
-    ? `<ul>${e.blockingControlsNotVerified.map((id) => `<li><a href="${href(`#control-${id}`)}">${text(id)}</a></li>`).join("")}</ul>`
+    ? `<ul>${e.blockingControlsNotVerified.map((id) => `<li><a href="${href(`#control-${controlAnchorId(anchorByControlId, id)}`)}">${text(id)}</a></li>`).join("")}</ul>`
     : `<p>None.</p>`;
   const topFindingBlock = e.topPrioritizedFinding
     ? `<p><a href="${href(`#finding-${e.topPrioritizedFinding.findingId}`)}">${text(e.topPrioritizedFinding.title)}</a> (${text(e.topPrioritizedFinding.severity)} / ${text(e.topPrioritizedFinding.type)})</p>`
@@ -94,7 +117,7 @@ function renderControlMatrix(model: PresentationModel): string {
       const findingsCell = c.findingIds.length
         ? c.findingIds.map((id) => `<a href="${href(`#finding-${id}`)}">${text(id)}</a>`).join(", ")
         : "—";
-      return `<tr id="control-${attr(c.controlId)}" data-effective-status="${attr(c.effectiveStatus)}">
+      return `<tr id="control-${attr(c.assessmentId)}" data-effective-status="${attr(c.effectiveStatus)}">
       <th scope="row">${text(c.title ?? c.controlId)} ${mismatchBadge}</th>
       <td>${text(c.recordedStatus)}</td>
       <td class="status-${attr(c.effectiveStatus)}">${text(c.effectiveStatus)} ${c.recordedStatus !== c.effectiveStatus ? "↺" : ""}</td>
@@ -119,13 +142,13 @@ function renderControlMatrix(model: PresentationModel): string {
 </section>`;
 }
 
-function renderFindings(model: PresentationModel): string {
+function renderFindings(model: PresentationModel, anchorByControlId: Map<string, string>): string {
   const knownControlIds = new Set(model.controls.map((c) => c.controlId));
   const cards = model.findings
     .map((f) => {
       const linkedControls =
         f.linkedControlIds
-          .map((id) => (knownControlIds.has(id) ? `<a href="${href(`#control-${id}`)}">${text(id)}</a>` : text(id)))
+          .map((id) => (knownControlIds.has(id) ? `<a href="${href(`#control-${controlAnchorId(anchorByControlId, id)}`)}">${text(id)}</a>` : text(id)))
           .join(", ") || "—";
       return `<details id="finding-${attr(f.findingId)}" class="finding-card severity-${attr(f.severity)}" data-status="${attr(f.status)}">
       <summary>
@@ -160,7 +183,7 @@ function renderFindings(model: PresentationModel): string {
 </section>`;
 }
 
-function renderEvidenceAndRiskAcceptance(model: PresentationModel): string {
+function renderEvidenceAndRiskAcceptance(model: PresentationModel, anchorByControlId: Map<string, string>): string {
   const controlsByEvidenceId = new Map<string, string[]>();
   const controlsByRiskAcceptanceId = new Map<string, string[]>();
   for (const c of model.controls) {
@@ -170,7 +193,7 @@ function renderEvidenceAndRiskAcceptance(model: PresentationModel): string {
 
   const evidenceCards = model.evidence
     .map((e) => {
-      const refs = (controlsByEvidenceId.get(e.evidenceId) ?? []).map((id) => `<a href="${href(`#control-${id}`)}">${text(id)}</a>`).join(", ") || "—";
+      const refs = (controlsByEvidenceId.get(e.evidenceId) ?? []).map((id) => `<a href="${href(`#control-${controlAnchorId(anchorByControlId, id)}`)}">${text(id)}</a>`).join(", ") || "—";
       return `<article id="evidence-${attr(e.evidenceId)}" class="evidence-card">
       <h3>${text(e.evidenceId)} <span class="badge">${text(e.type)}</span></h3>
       <p>${text(e.location)}</p>
@@ -187,7 +210,7 @@ function renderEvidenceAndRiskAcceptance(model: PresentationModel): string {
 
   const raCards = model.riskAcceptances
     .map((r) => {
-      const refs = (controlsByRiskAcceptanceId.get(r.riskAcceptanceId) ?? []).map((id) => `<a href="${href(`#control-${id}`)}">${text(id)}</a>`).join(", ") || "—";
+      const refs = (controlsByRiskAcceptanceId.get(r.riskAcceptanceId) ?? []).map((id) => `<a href="${href(`#control-${controlAnchorId(anchorByControlId, id)}`)}">${text(id)}</a>`).join(", ") || "—";
       return `<article id="risk-acceptance-${attr(r.riskAcceptanceId)}" class="ra-card">
       <h3>${text(r.riskAcceptanceId)} <span class="badge">${text(r.status)}</span></h3>
       <p>${text(r.reason)}</p>
@@ -365,12 +388,13 @@ const CLIENT_SCRIPT = `
 `;
 
 export function renderReportHtml(model: PresentationModel, opts: { d3Source: string }): string {
+  const anchorByControlId = buildControlAnchorMap(model);
   const main = [
-    renderExecutiveSummary(model),
+    renderExecutiveSummary(model, anchorByControlId),
     renderDomainOverview(model),
     renderControlMatrix(model),
-    renderFindings(model),
-    renderEvidenceAndRiskAcceptance(model),
+    renderFindings(model, anchorByControlId),
+    renderEvidenceAndRiskAcceptance(model, anchorByControlId),
   ].join("\n");
 
   const footerContent = [renderScopeMethodologyLimitations(model), renderTerminology()].join("\n");

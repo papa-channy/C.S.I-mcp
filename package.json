@@ -7,7 +7,7 @@
   "scripts": {
     "test": "npm run typecheck && vitest run",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && mkdir -p dist/assets && cp src/assets/d3.v7.min.js src/assets/d3.v7.LICENSE src/assets/d3.v7.min.js.sha256 dist/assets/",
     "start": "node dist/mcp/server.js"
   },
   "devDependencies": {

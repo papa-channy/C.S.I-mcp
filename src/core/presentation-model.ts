@@ -55,6 +55,7 @@ export interface ControlRowEffectiveStatusReason {
 }
 
 export interface ControlRow {
+  assessmentId: string;
   controlId: string;
   controlVersion: number;
   runId: string;
@@ -290,6 +291,7 @@ export function buildPresentationModel(
     }
 
     return {
+      assessmentId: snapshot.assessmentId,
       controlId: snapshot.controlId,
       controlVersion: snapshot.controlVersion,
       runId: snapshot.runId,

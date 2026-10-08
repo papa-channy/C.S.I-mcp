@@ -128,6 +128,14 @@ describe("translateAssessmentsForTrust — recordedStatus/status/effectiveStatus
     expect(result[0].effectiveStatusReason).toEqual({ code: "stale_profile" });
   });
 
+  it("a stale assessment whose recorded status is already NOT_TESTED has a null reason, since nothing actually changed", () => {
+    const a = assessment("TEST-001", { profileRevision: 1, status: "NOT_TESTED" });
+    const result = translateAssessmentsForTrust([a], 2, [], NOW);
+    expect(result[0].recordedStatus).toBe("NOT_TESTED");
+    expect(result[0].status).toBe("NOT_TESTED");
+    expect(result[0].effectiveStatusReason).toBeNull();
+  });
+
   it("never mutates the input ControlAssessment objects", () => {
     const a = assessment("TEST-001", { profileRevision: 1 });
     translateAssessmentsForTrust([a], 2, [], NOW);

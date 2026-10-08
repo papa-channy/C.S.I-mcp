@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -132,6 +133,12 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     const htmlPayload = html.structuredContent as any;
     expect(htmlPayload.path).toMatch(/\.html$/);
     expect(htmlPayload.sourceReportSha256).toMatch(/^[0-9a-f]{64}$/);
+    // The entire point of sourceReportSha256 is provenance: it must equal the actual hash of the
+    // JSON report file on disk at the time generate_report_html read it, not merely look hash-shaped.
+    const savedReportPath = join(dataDir, "projects", projectId, "reports", `${reportPayload.reportId}.json`);
+    const savedReportBytes = readFileSync(savedReportPath);
+    const expectedSha256 = createHash("sha256").update(savedReportBytes).digest("hex");
+    expect(htmlPayload.sourceReportSha256).toBe(expectedSha256);
     const writtenHtml = readFileSync(htmlPayload.path, "utf-8");
     expect(writtenHtml).toContain("<!doctype html>");
     expect(writtenHtml).toContain("Content-Security-Policy");

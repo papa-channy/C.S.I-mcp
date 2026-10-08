@@ -64,13 +64,15 @@ export function translateAssessmentsForTrust(
       }
     }
 
+    const effectiveStatus = forceNotTested ? "NOT_TESTED" : a.status;
+
     return {
       assessmentId: a.assessmentId,
       controlId: a.controlId,
       runId: a.runId,
       recordedStatus: a.status,
-      status: forceNotTested ? "NOT_TESTED" : a.status,
-      effectiveStatusReason: reason,
+      status: effectiveStatus,
+      effectiveStatusReason: effectiveStatus === a.status ? null : reason,
     };
   });
 }

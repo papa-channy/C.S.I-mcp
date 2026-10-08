@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { renderReportHtml, REPORT_HTML_RENDERER_VERSION } from "../../src/core/report-html-renderer.js";
 import type { PresentationModel } from "../../src/core/presentation-model.js";
 
@@ -21,7 +23,7 @@ function sampleModel(overrides: Partial<PresentationModel> = {}): PresentationMo
     },
     domains: [{ domain: "appsec", score: 100, coverage: { percent: 100, assessed: 1, applicable: 1 } }],
     controls: [{
-      controlId: "CTRL-001", controlVersion: 1, runId: "RUN-1", title: "Title", domain: "appsec",
+      assessmentId: "A-001", controlId: "CTRL-001", controlVersion: 1, runId: "RUN-1", title: "Title", domain: "appsec",
       controlDefinitionVersionMismatch: false, recordedStatus: "PASS", effectiveStatus: "PASS", effectiveStatusReason: null,
       assessedAt: "2026-10-07T00:00:00.000Z", assessedBy: "x", owner: "x", nextReviewAt: null, notes: null,
       evidenceIds: [], evidence: [], riskAcceptanceId: null, riskAcceptance: null, findingIds: [],
@@ -108,5 +110,39 @@ describe("renderReportHtml — structure and escaping", () => {
   it("is a pure function: same model and opts produce byte-identical output", () => {
     const model = sampleModel();
     expect(renderReportHtml(model, { d3Source: D3_STUB })).toBe(renderReportHtml(model, { d3Source: D3_STUB }));
+  });
+});
+
+describe("vendored D3 asset — supply-chain integrity", () => {
+  it("src/assets/d3.v7.min.js still hashes to the value recorded in src/assets/d3.v7.min.js.sha256", () => {
+    const bytes = readFileSync("src/assets/d3.v7.min.js");
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    const recorded = readFileSync("src/assets/d3.v7.min.js.sha256", "utf-8").trim();
+    expect(actual).toBe(recorded);
+  });
+});
+
+describe("renderReportHtml — control row anchor ids are unique when a control is reassessed within one run", () => {
+  it("emits two distinct <tr id> values (keyed on assessmentId) for two ControlRows sharing one controlId, and both #control-X links resolve to the latest assessment", () => {
+    const base = sampleModel();
+    const model = sampleModel({
+      executive: { ...base.executive, blockingControlFailures: ["CTRL-001"] },
+      controls: [
+        { ...base.controls[0], assessmentId: "A-001", assessedAt: "2026-10-07T00:00:00.000Z", recordedStatus: "FAIL", effectiveStatus: "FAIL" },
+        { ...base.controls[0], assessmentId: "A-002", assessedAt: "2026-10-08T00:00:00.000Z", recordedStatus: "PASS", effectiveStatus: "PASS" },
+      ],
+      findings: [{ ...base.findings[0], linkedControlIds: ["CTRL-001"] }],
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+
+    const ids = [...html.matchAll(/<tr id="control-([^"]+)"/g)].map((m) => m[1]);
+    expect(ids).toEqual(["A-001", "A-002"]);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    // Every href that links to CTRL-001 by controlId must resolve to the latest row (A-002),
+    // not the stale one (A-001) and not the ambiguous bare controlId.
+    expect(html).not.toContain(`href="#control-CTRL-001"`);
+    expect(html).toContain(`href="#control-A-002"`);
+    expect(html).not.toContain(`href="#control-A-001"`);
   });
 });

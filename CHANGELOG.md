@@ -30,6 +30,10 @@ release artifacts.
 ### Changed
 - Breaking: `generate_report` MCP tool renamed to `generate_report_data`. Same input/output
   shape; the data step is now explicitly in service of the HTML report, not an end in itself.
+- Breaking: an `ACCEPTED_RISK` control assessment whose `riskAcceptanceId` is scoped to a
+  different `controlId` is now treated as `NOT_TESTED` by `calculateScore`/`evaluateRelease`
+  (previously honored as `ACCEPTED_RISK` if otherwise valid) — surfaced via the new
+  `risk_acceptance_scope_mismatch` reason code.
 
 ## [0.9.0] — 2026-10-07
 

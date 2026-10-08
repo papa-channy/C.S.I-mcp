@@ -316,17 +316,11 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
     const legacyReportPath = join(dir, "projects", "PRJ-1", "reports", "REP-LEGACY.json");
     mkdirSync(join(dir, "projects", "PRJ-1", "reports"), { recursive: true });
     const legacyReport = {
-      reportId: "REP-LEGACY", projectId: "PRJ-1", projectName: "Demo", assessmentRunId: "RUN-OLD", catalogVersion: "1.0.0", profileRevision: 1,
+      reportId: "REP-LEGACY", projectId: "PRJ-1", assessmentRunId: "RUN-OLD", catalogVersion: "1.0.0", profileRevision: 1,
       criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" }, generatedAt: "2026-08-01T00:00:00.000Z",
       score: { overallScore: 90, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 }, scoreModel: { id: "M", version: "1" }, domainScores: [] },
       prioritizedFindings: [],
-      projectFindingSnapshots: [],
-      runControlAssessmentSnapshots: [],
-      releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" },
-      target: null,
-      profileSnapshot: null,
-      engineVersionAtRunStart: null,
-      reportSchemaVersion: "2.1.0",
+      releaseEvaluation: { gate: 4, controlCoverage: 100, criticalFindings: 0, highFindings: 0, unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0, incidentResponseVerified: true, backupRestoreVerified: true, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" },
       summary: "a pre-2.0.0 report with the old field names and no reportSchemaVersion at all",
     };
     writeFileSync(legacyReportPath, JSON.stringify(legacyReport, null, 2));
@@ -352,7 +346,7 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
       });
     }
     const reportService = new ReportService(mixed, () => NOW);
-    const newReport = await reportService.generateData({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh 2.0.0 report for the same project" });
+    const newReport = await reportService.generateData({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh report for the same project" });
 
     const after = readFileSyncUtf8(legacyReportPath);
     expect(after).toBe(before);
