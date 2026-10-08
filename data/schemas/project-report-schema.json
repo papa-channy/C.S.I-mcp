@@ -152,6 +152,79 @@
         "additionalProperties": false
       }
     },
+    "evidenceSnapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "evidenceId": { "type": "string", "minLength": 1 },
+          "type": {
+            "type": "string",
+            "enum": ["CODE", "CONFIG", "AUTOMATED_TEST", "MANUAL_TEST", "SCAN", "LOG", "AUDIT_LOG", "ARCHITECTURE", "CI_ARTIFACT", "DEPLOYMENT_RECORD", "SCREENSHOT", "TICKET", "REPORT", "MANUAL_REVIEW"]
+          },
+          "location": { "type": "string", "minLength": 1 },
+          "description": { "type": ["string", "null"] },
+          "capturedAt": { "type": "string", "format": "date-time" },
+          "capturedBy": { "type": "string", "minLength": 1 }
+        },
+        "required": ["evidenceId", "type", "location", "description", "capturedAt", "capturedBy"],
+        "additionalProperties": false
+      }
+    },
+    "riskAcceptanceSnapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "riskAcceptanceId": { "type": "string", "minLength": 1 },
+          "controlId": { "type": "string", "minLength": 1 },
+          "findingIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "reason": { "type": "string", "minLength": 1 },
+          "compensatingControls": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "approvedBy": { "type": "string", "minLength": 1 },
+          "approvedAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "reviewDate": { "type": ["string", "null"], "format": "date-time" },
+          "status": { "type": "string", "enum": ["active", "expired", "revoked"] },
+          "revokedAt": { "type": ["string", "null"], "format": "date-time" },
+          "revokedReason": { "type": ["string", "null"], "minLength": 1 }
+        },
+        "required": ["riskAcceptanceId", "controlId", "findingIds", "reason", "compensatingControls", "approvedBy", "approvedAt", "expiresAt", "reviewDate", "status", "revokedAt", "revokedReason"],
+        "additionalProperties": false
+      }
+    },
+    "assessmentScopes": {
+      "type": "object",
+      "properties": {
+        "projectFindingSnapshots": {
+          "type": "object", "properties": { "kind": { "const": "project" } }, "required": ["kind"], "additionalProperties": false
+        },
+        "score": {
+          "type": "object",
+          "properties": { "kind": { "const": "project-assessment-set" }, "contributingRunIds": { "type": "array", "items": { "type": "string", "minLength": 1 } } },
+          "required": ["kind", "contributingRunIds"], "additionalProperties": false
+        },
+        "releaseEvaluation": {
+          "type": "object",
+          "properties": { "kind": { "const": "project-assessment-set" }, "contributingRunIds": { "type": "array", "items": { "type": "string", "minLength": 1 } } },
+          "required": ["kind", "contributingRunIds"], "additionalProperties": false
+        },
+        "runControlAssessmentSnapshots": {
+          "type": "object", "properties": { "kind": { "const": "run" }, "runId": { "type": "string", "minLength": 1 } },
+          "required": ["kind", "runId"], "additionalProperties": false
+        },
+        "evidenceSnapshots": {
+          "type": "object", "properties": { "kind": { "const": "referenced-by-run" }, "runId": { "type": "string", "minLength": 1 } },
+          "required": ["kind", "runId"], "additionalProperties": false
+        },
+        "riskAcceptanceSnapshots": {
+          "type": "object", "properties": { "kind": { "const": "referenced-by-run" }, "runId": { "type": "string", "minLength": 1 } },
+          "required": ["kind", "runId"], "additionalProperties": false
+        }
+      },
+      "required": ["projectFindingSnapshots", "score", "releaseEvaluation", "runControlAssessmentSnapshots", "evidenceSnapshots", "riskAcceptanceSnapshots"],
+      "additionalProperties": false
+    },
     "releaseEvaluation": {
       "type": "object",
       "properties": {
@@ -186,7 +259,7 @@
   },
   "required": [
     "reportId", "projectId", "projectName", "assessmentRunId", "catalogVersion", "profileRevision", "criticalityFormula",
-    "generatedAt", "score", "prioritizedFindings", "projectFindingSnapshots", "runControlAssessmentSnapshots", "releaseEvaluation",
+    "generatedAt", "score", "prioritizedFindings", "projectFindingSnapshots", "runControlAssessmentSnapshots", "evidenceSnapshots", "riskAcceptanceSnapshots", "assessmentScopes", "releaseEvaluation",
     "target", "profileSnapshot", "engineVersionAtRunStart", "reportSchemaVersion", "summary"
   ],
   "additionalProperties": false

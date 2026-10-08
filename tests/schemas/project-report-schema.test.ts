@@ -42,6 +42,16 @@ describe("project-report-schema", () => {
     ],
     projectFindingSnapshots: [],
     runControlAssessmentSnapshots: [],
+    evidenceSnapshots: [],
+    riskAcceptanceSnapshots: [],
+    assessmentScopes: {
+      projectFindingSnapshots: { kind: "project" },
+      score: { kind: "project-assessment-set", contributingRunIds: ["RUN-20260919-001"] },
+      releaseEvaluation: { kind: "project-assessment-set", contributingRunIds: ["RUN-20260919-001"] },
+      runControlAssessmentSnapshots: { kind: "run", runId: "RUN-20260919-001" },
+      evidenceSnapshots: { kind: "referenced-by-run", runId: "RUN-20260919-001" },
+      riskAcceptanceSnapshots: { kind: "referenced-by-run", runId: "RUN-20260919-001" },
+    },
     releaseEvaluation: {
       gate: 4,
       controlCoverage: 91.67,

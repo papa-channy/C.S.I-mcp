@@ -24,10 +24,11 @@ export class ReportService {
     const project = await withNotFound(this.repository.getProject(input.projectId), `Project "${input.projectId}" not found`, { projectId: input.projectId });
     const run = await withNotFound(this.repository.getRun(input.projectId, input.runId), `AssessmentRun "${input.runId}" not found`, { runId: input.runId });
 
-    const [assessments, findings, controls] = await Promise.all([
+    const [assessments, findings, controls, evidence] = await Promise.all([
       this.repository.getControlAssessments(input.projectId),
       this.repository.getFindings(input.projectId),
       this.repository.getControls(),
+      this.repository.getEvidence(input.projectId),
     ]);
     const [scoreModel, criticalityFormula] = await Promise.all([
       this.repository.getScoreModel(SCORE_MODEL_ID),
@@ -75,6 +76,8 @@ export class ReportService {
       allAssessments: assessments,
       translatedAssessments: translatedAssessments,
       controls,
+      allEvidence: evidence,
+      allRiskAcceptances: riskAcceptances,
     });
     await this.repository.saveReport(report);
     return report;
