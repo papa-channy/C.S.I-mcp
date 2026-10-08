@@ -287,6 +287,8 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
     saveRun: projectRepo.saveRun.bind(projectRepo),
     saveBatch: projectRepo.saveBatch.bind(projectRepo),
     saveReport: projectRepo.saveReport.bind(projectRepo),
+    getReportRawBytes: projectRepo.getReportRawBytes.bind(projectRepo),
+    saveReportHtml: projectRepo.saveReportHtml.bind(projectRepo),
     savePlan: projectRepo.savePlan.bind(projectRepo),
     saveProject: projectRepo.saveProject.bind(projectRepo),
     saveControlAssessment: projectRepo.saveControlAssessment.bind(projectRepo),
@@ -296,7 +298,7 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
   };
 }
 
-describe("JsonRepository — old ProjectReport files are never touched by ReportService.generate()'s normal path", () => {
+describe("JsonRepository — old ProjectReport files are never touched by ReportService.generateData()'s normal path", () => {
   const NOW = "2026-10-06T00:00:00.000Z";
   let dir: string;
   let repo: JsonRepository;
@@ -310,7 +312,7 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("a legacy-shaped report on disk is byte-for-byte unchanged after ReportService.generate() creates a new report for the same project", async () => {
+  it("a legacy-shaped report on disk is byte-for-byte unchanged after ReportService.generateData() creates a new report for the same project", async () => {
     const legacyReportPath = join(dir, "projects", "PRJ-1", "reports", "REP-LEGACY.json");
     mkdirSync(join(dir, "projects", "PRJ-1", "reports"), { recursive: true });
     const legacyReport = {
@@ -350,7 +352,7 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
       });
     }
     const reportService = new ReportService(mixed, () => NOW);
-    const newReport = await reportService.generate({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh 2.0.0 report for the same project" });
+    const newReport = await reportService.generateData({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh 2.0.0 report for the same project" });
 
     const after = readFileSyncUtf8(legacyReportPath);
     expect(after).toBe(before);

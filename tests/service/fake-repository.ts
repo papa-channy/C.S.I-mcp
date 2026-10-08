@@ -23,6 +23,7 @@ export class FakeRepository implements SecurityRepository {
   runs = new Map<string, AssessmentRun>();
   batches = new Map<string, AssessmentBatch>();
   reports = new Map<string, ProjectReport>();
+  reportHtml = new Map<string, string>();
 
   async getProject(projectId: string): Promise<Project> {
     const project = this.projects.get(projectId);
@@ -80,6 +81,16 @@ export class FakeRepository implements SecurityRepository {
   }
   async saveReport(report: ProjectReport): Promise<void> {
     this.reports.set(report.reportId, report);
+  }
+  async getReportRawBytes(_projectId: string, reportId: string): Promise<Buffer> {
+    const report = this.reports.get(reportId);
+    if (!report) throw new Error(`FakeRepository: no such report "${reportId}"`);
+    return Buffer.from(JSON.stringify(report));
+  }
+  async saveReportHtml(projectId: string, reportId: string, html: string): Promise<string> {
+    const path = `fake/${projectId}/reports/${reportId}.html`;
+    this.reportHtml.set(reportId, html);
+    return path;
   }
   async savePlan(plan: AssessmentPlan): Promise<void> {
     this.plans.set(plan.planId, plan);

@@ -18,7 +18,7 @@ import { registerRecordAssessmentTool } from "../../src/mcp/tools/record-assessm
 import { registerRecordFindingTool } from "../../src/mcp/tools/record-finding.js";
 import { registerGetScoreTool } from "../../src/mcp/tools/get-score.js";
 import { registerEvaluateReleaseTool } from "../../src/mcp/tools/evaluate-release.js";
-import { registerGenerateReportTool } from "../../src/mcp/tools/generate-report.js";
+import { registerGenerateReportDataTool } from "../../src/mcp/tools/generate-report-data.js";
 import { compileSchemaFromFile } from "../../src/validate.js";
 
 describe("full MCP workflow, against the real data/ catalog", () => {
@@ -48,7 +48,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     registerRecordFindingTool(server, assessmentService);
     registerGetScoreTool(server, analysisService);
     registerEvaluateReleaseTool(server, analysisService);
-    registerGenerateReportTool(server, reportService);
+    registerGenerateReportDataTool(server, reportService);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: "test-client", version: "0.0.0" });
@@ -111,7 +111,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     expect(release.isError).toBeFalsy();
 
     const report = await client.callTool({
-      name: "generate_report",
+      name: "generate_report_data",
       arguments: { projectId, runId, summary: "Integration test run — all controls PASS, one low finding." },
     });
     expect(report.isError).toBeFalsy();
@@ -142,6 +142,8 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
     saveRun: projectRepo.saveRun.bind(projectRepo),
     saveBatch: projectRepo.saveBatch.bind(projectRepo),
     saveReport: projectRepo.saveReport.bind(projectRepo),
+    getReportRawBytes: projectRepo.getReportRawBytes.bind(projectRepo),
+    saveReportHtml: projectRepo.saveReportHtml.bind(projectRepo),
     savePlan: projectRepo.savePlan.bind(projectRepo),
     saveProject: projectRepo.saveProject.bind(projectRepo),
     saveControlAssessment: projectRepo.saveControlAssessment.bind(projectRepo),
