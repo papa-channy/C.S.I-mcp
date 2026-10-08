@@ -113,6 +113,52 @@ describe("renderReportHtml — structure and escaping", () => {
   });
 });
 
+// The H1 drops only the exact "(<target.repository>)" substring (the header's own target line
+// already states the repository) — never a generic parenthetical strip, since this project's
+// naming convention also uses a second parenthetical for genuinely distinguishing text (e.g. a
+// re-assessment qualifier) that must survive untouched.
+describe("renderReportHtml — H1 does not repeat the repository the header's target line already states", () => {
+  function h1Text(html: string): string {
+    return html.match(/<h1>([\s\S]*?)<\/h1>/)?.[1] ?? "";
+  }
+
+  it('strips "(owner/repo)" from the H1 when it matches target.repository exactly', () => {
+    const model = sampleModel({
+      metadata: { ...sampleModel().metadata, projectName: "Demo Project (example/repo)" },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project");
+  });
+
+  it("preserves a second, genuinely distinguishing parenthetical qualifier", () => {
+    const model = sampleModel({
+      metadata: { ...sampleModel().metadata, projectName: "Demo Project (example/repo) — re-assessment (abc123, 2026-10-03)" },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project — re-assessment (abc123, 2026-10-03)");
+  });
+
+  it("leaves projectName untouched when target.repository does not literally appear in it", () => {
+    const model = sampleModel({
+      metadata: { ...sampleModel().metadata, projectName: "Demo Project (some/other-repo)" },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project (some/other-repo)");
+  });
+
+  it("leaves projectName untouched when target is unavailable (legacy reports)", () => {
+    const model = sampleModel({
+      metadata: {
+        ...sampleModel().metadata,
+        projectName: "Demo Project (example/repo)",
+        target: { available: false, repository: null, commitSha: null, branchOrTag: null, dirty: null, provenanceKind: "legacy-unavailable" },
+      },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project (example/repo)");
+  });
+});
+
 describe("vendored D3 asset — supply-chain integrity", () => {
   it("src/assets/d3.v7.min.js still hashes to the value recorded in src/assets/d3.v7.min.js.sha256", () => {
     const bytes = readFileSync("src/assets/d3.v7.min.js");
