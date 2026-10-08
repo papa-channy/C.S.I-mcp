@@ -308,6 +308,17 @@ re-verified. What's left, explicitly deferred rather than silently dropped:
   (`scripts/reindex-project-data.ts`) are pure local tooling with no orphan cleanup — if a
   project's `name` changes, the old slug symlink is left in place pointing at the same
   `projectId` (harmless, just clutter) rather than being removed.
+- **Per-project version-history landing page — explicitly deferred, not started.** A customer
+  gets reports for *their own single project*, which can be assessed multiple times over time
+  (initial run → remediation → re-assessment to verify fixes) — so each project needs a way to
+  browse its own report history by point in time, not a page that browses across projects. Right
+  now that history exists only as data (`reports/<reportId>.json`/`.html` pairs per run) plus a
+  plain-markdown `reports/INDEX.md` from the reindex tool; there's no designed HTML page for a
+  customer to actually navigate a project's version timeline (e.g. "compare this run to the
+  previous one"). This needs its own brainstorming pass (own information architecture, not a
+  CSS tweak) before implementation — raised and intentionally scoped out of the
+  `report-presentation-layer` visual redesign (2026-10-09) to keep that redesign to a single
+  report's own layout.
 
 ## Next steps, in a reasonable order
 
