@@ -30,10 +30,17 @@ function sampleReport(): ProjectReport {
       assessmentId: "A-1", runId: "RUN-1", controlId: "CTRL-001", controlVersion: 1, title: "Sample control", domain: "appsec",
       profileRevision: 1, applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
       recordedStatus: "PASS", effectiveStatus: "PASS", effectiveStatusReason: null,
-      evidenceIds: [], findingIds: ["FND-1"], riskAcceptanceId: null, owner: "x", assessedBy: "x",
+      evidenceIds: ["EVD-001"], findingIds: ["FND-1"], riskAcceptanceId: null, owner: "x", assessedBy: "x",
       assessedAt: "2026-10-07T00:00:00.000Z", nextReviewAt: null, notes: null,
     }],
-    evidenceSnapshots: [], riskAcceptanceSnapshots: [],
+    evidenceSnapshots: [{
+      evidenceId: "EVD-001", type: "CODE",
+      // A real-world unbroken path/URL with no spaces — the exact shape that forced a
+      // .card-grid track (and with it, the whole page) past the viewport before body picked
+      // up `overflow-wrap: anywhere`, since this text sits in a plain <p>, not a <code> tag.
+      location: "app/controllers/api/v1/accounts/conversations/messages_controller.rb#L142-L168-extremely-long-unbroken-path-segment-with-no-spaces-to-wrap-on",
+      description: null, capturedAt: "2026-10-07T00:00:00.000Z", capturedBy: "x",
+    }], riskAcceptanceSnapshots: [],
     assessmentScopes: {
       projectFindingSnapshots: { kind: "project" }, score: { kind: "project-assessment-set", contributingRunIds: ["RUN-1"] },
       releaseEvaluation: { kind: "project-assessment-set", contributingRunIds: ["RUN-1"] },
@@ -92,9 +99,12 @@ describe("renderReportHtml — print support, real browser (Playwright/Chromium,
   });
 });
 
-describe("renderReportHtml — responsive at a 375px viewport (Playwright/Chromium, spec §12)", () => {
+describe.each([
+  { label: "375px mobile", width: 375, height: 812 },
+  { label: "1280px desktop", width: 1280, height: 1024 },
+])("renderReportHtml — responsive at a $label viewport (Playwright/Chromium, spec §12)", ({ width, height }) => {
   it("the document never scrolls horizontally, and the Control Matrix table scrolls inside its own container instead", async () => {
-    const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
+    const page = await browser.newPage({ viewport: { width, height } });
     await page.setContent(renderHtml(), { waitUntil: "load" });
     const bodyScrollWidth = await page.evaluate(() => document.body.scrollWidth);
     const viewportWidth = await page.evaluate(() => window.innerWidth);
