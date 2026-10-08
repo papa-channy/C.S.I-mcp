@@ -603,6 +603,7 @@ tr.domain-group th { background: var(--page); color: var(--text-secondary); font
 .finding-summary__secondary { font-size: 0.82rem; color: var(--text-secondary); display: flex; gap: 6px; }
 .finding-summary__right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .index-pair { font-size: 0.78rem; color: var(--text-tertiary); }
+#priority-criticality-scatter { display: block; width: 100%; max-width: 520px; height: auto; color: var(--text-secondary); }
 .finding-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 0.9rem; margin-block: 0.9rem 0; font-size: 0.87rem; }
 .finding-facts dt { color: var(--text-secondary); }
 .finding-facts dd { margin: 0; }
