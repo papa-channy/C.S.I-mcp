@@ -6,6 +6,7 @@
   "properties": {
     "reportId": { "type": "string", "minLength": 1 },
     "projectId": { "type": "string", "minLength": 1 },
+    "projectName": { "type": "string", "minLength": 1 },
     "assessmentRunId": { "type": "string", "minLength": 1 },
     "catalogVersion": { "type": "string", "minLength": 1 },
     "profileRevision": { "type": "integer", "minimum": 1 },
@@ -96,6 +97,61 @@
         "additionalProperties": false
       }
     },
+    "runControlAssessmentSnapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "assessmentId": { "type": "string", "minLength": 1 },
+          "runId": { "type": "string", "minLength": 1 },
+          "controlId": { "type": "string", "minLength": 1 },
+          "controlVersion": { "type": "integer", "minimum": 1 },
+          "title": { "type": ["string", "null"] },
+          "domain": { "type": ["string", "null"] },
+          "profileRevision": { "type": "integer", "minimum": 1 },
+          "applicability": {
+            "type": "object",
+            "properties": {
+              "autoResult": { "type": "string", "enum": ["applicable", "not_applicable", "unknown"] },
+              "finalResult": { "type": "string", "enum": ["applicable", "not_applicable", "unknown"] },
+              "matchedRules": { "type": "array", "items": { "type": "string" } },
+              "source": { "type": "string", "enum": ["automatic", "manual_override"] },
+              "reason": { "type": "string" }
+            },
+            "required": ["autoResult", "finalResult", "source"],
+            "additionalProperties": false
+          },
+          "recordedStatus": { "type": "string", "enum": ["PASS", "FAIL", "PARTIAL", "N/A", "NOT_TESTED", "ACCEPTED_RISK"] },
+          "effectiveStatus": { "type": "string", "enum": ["PASS", "FAIL", "PARTIAL", "N/A", "NOT_TESTED", "ACCEPTED_RISK"] },
+          "effectiveStatusReason": {
+            "type": ["object", "null"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": ["stale_profile", "risk_acceptance_missing", "risk_acceptance_expired", "risk_acceptance_revoked", "risk_acceptance_scope_mismatch"]
+              },
+              "detail": { "type": "string", "minLength": 1 }
+            },
+            "required": ["code"],
+            "additionalProperties": false
+          },
+          "evidenceIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "findingIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "riskAcceptanceId": { "type": ["string", "null"] },
+          "owner": { "type": "string", "minLength": 1 },
+          "assessedBy": { "type": "string", "minLength": 1 },
+          "assessedAt": { "type": "string", "format": "date-time" },
+          "nextReviewAt": { "type": ["string", "null"], "format": "date-time" },
+          "notes": { "type": ["string", "null"] }
+        },
+        "required": [
+          "assessmentId", "runId", "controlId", "controlVersion", "title", "domain", "profileRevision",
+          "applicability", "recordedStatus", "effectiveStatus", "effectiveStatusReason",
+          "evidenceIds", "findingIds", "riskAcceptanceId", "owner", "assessedBy", "assessedAt", "nextReviewAt", "notes"
+        ],
+        "additionalProperties": false
+      }
+    },
     "releaseEvaluation": {
       "type": "object",
       "properties": {
@@ -125,12 +181,12 @@
     },
     "profileSnapshot": { "type": ["object", "null"] },
     "engineVersionAtRunStart": { "type": ["string", "null"] },
-    "reportSchemaVersion": { "const": "2.0.0" },
+    "reportSchemaVersion": { "const": "2.1.0" },
     "summary": { "type": "string", "minLength": 1 }
   },
   "required": [
-    "reportId", "projectId", "assessmentRunId", "catalogVersion", "profileRevision", "criticalityFormula",
-    "generatedAt", "score", "prioritizedFindings", "projectFindingSnapshots", "releaseEvaluation",
+    "reportId", "projectId", "projectName", "assessmentRunId", "catalogVersion", "profileRevision", "criticalityFormula",
+    "generatedAt", "score", "prioritizedFindings", "projectFindingSnapshots", "runControlAssessmentSnapshots", "releaseEvaluation",
     "target", "profileSnapshot", "engineVersionAtRunStart", "reportSchemaVersion", "summary"
   ],
   "additionalProperties": false

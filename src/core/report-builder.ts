@@ -1,8 +1,9 @@
-import type { Target } from "./repository.js";
+import type { Target, ControlAssessment, Control } from "./repository.js";
 import type { ProjectProfile } from "./applicability.js";
 import type { ReleaseEvaluation } from "./release-evaluator.js";
+import type { EffectiveStatusReason, TrustNormalizedAssessment } from "./risk-acceptance.js";
 
-export const REPORT_SCHEMA_VERSION = "2.0.0";
+export const REPORT_SCHEMA_VERSION = "2.1.0";
 
 export function roundReportNumber(value: number): number {
   if (!Number.isFinite(value)) {
@@ -57,6 +58,74 @@ export function buildProjectFindingSnapshots(findings: FindingForReport[]): Find
   return snapshots.sort((a, b) => (a.findingId < b.findingId ? -1 : a.findingId > b.findingId ? 1 : 0));
 }
 
+export interface ControlAssessmentSnapshot {
+  assessmentId: string;
+  runId: string;
+  controlId: string;
+  controlVersion: number;
+  title: string | null;
+  domain: string | null;
+  profileRevision: number;
+  applicability: ControlAssessment["applicability"];
+  recordedStatus: ControlAssessment["status"];
+  effectiveStatus: ControlAssessment["status"];
+  effectiveStatusReason: EffectiveStatusReason | null;
+  evidenceIds: string[];
+  findingIds: string[];
+  riskAcceptanceId: string | null;
+  owner: string;
+  assessedBy: string;
+  assessedAt: string;
+  nextReviewAt: string | null;
+  notes: string | null;
+}
+
+export function buildRunControlAssessmentSnapshots(
+  allAssessments: ControlAssessment[],
+  translatedAssessments: TrustNormalizedAssessment[],
+  controls: Control[],
+  runId: string
+): ControlAssessmentSnapshot[] {
+  const normalizedByAssessmentId = new Map(translatedAssessments.map((n) => [n.assessmentId, n]));
+  const controlByIdAndVersion = new Map(controls.map((c) => [`${c.controlId}@${c.version}`, c]));
+
+  const snapshots: ControlAssessmentSnapshot[] = allAssessments
+    .filter((a) => a.runId === runId)
+    .map((a) => {
+      const normalized = normalizedByAssessmentId.get(a.assessmentId);
+      if (!normalized) {
+        throw new Error(
+          `buildRunControlAssessmentSnapshots: assessment "${a.assessmentId}" has no matching entry in translatedAssessments — ` +
+            `every ControlAssessment fed to translateAssessmentsForTrust must appear exactly once in its result`
+        );
+      }
+      const control = controlByIdAndVersion.get(`${a.controlId}@${a.controlVersion}`);
+      return {
+        assessmentId: a.assessmentId,
+        runId: a.runId,
+        controlId: a.controlId,
+        controlVersion: a.controlVersion,
+        title: control?.title ?? null,
+        domain: control?.domain ?? null,
+        profileRevision: a.profileRevision,
+        applicability: a.applicability,
+        recordedStatus: normalized.recordedStatus,
+        effectiveStatus: normalized.status,
+        effectiveStatusReason: normalized.effectiveStatusReason,
+        evidenceIds: [...a.evidenceIds],
+        findingIds: [...a.findingIds],
+        riskAcceptanceId: a.riskAcceptanceId,
+        owner: a.owner,
+        assessedBy: a.assessedBy,
+        assessedAt: a.assessedAt,
+        nextReviewAt: a.nextReviewAt,
+        notes: a.notes,
+      };
+    });
+
+  return snapshots.sort((a, b) => (a.controlId < b.controlId ? -1 : a.controlId > b.controlId ? 1 : 0));
+}
+
 export interface FindingForReport {
   findingId: string;
   title: string;
@@ -108,6 +177,7 @@ export interface ReleaseEvaluationForReport {
 export interface ProjectReport {
   reportId: string;
   projectId: string;
+  projectName: string;
   assessmentRunId: string;
   catalogVersion: string;
   profileRevision: number;
@@ -116,6 +186,7 @@ export interface ProjectReport {
   score: ScoreForReport;
   prioritizedFindings: PrioritizedFindingInput[];
   projectFindingSnapshots: FindingSnapshot[];
+  runControlAssessmentSnapshots: ControlAssessmentSnapshot[];
   releaseEvaluation: ReleaseEvaluationForReport;
   target: Target | null;
   profileSnapshot: ProjectProfile | null;
@@ -126,6 +197,7 @@ export interface ProjectReport {
 
 export function buildReport(input: {
   reportId: string;
+  projectName: string;
   run: {
     runId: string;
     projectId: string;
@@ -141,6 +213,9 @@ export function buildReport(input: {
   findings: FindingForReport[];
   releaseEvaluation: ReleaseEvaluation;
   summary: string;
+  allAssessments: ControlAssessment[];
+  translatedAssessments: TrustNormalizedAssessment[];
+  controls: Control[];
 }): ProjectReport {
   const actionable = input.findings.filter((f) => f.status === "open" || f.status === "in_progress");
   const projected: PrioritizedFindingInput[] = actionable.map((f) => ({
@@ -180,6 +255,7 @@ export function buildReport(input: {
   return {
     reportId: input.reportId,
     projectId: input.run.projectId,
+    projectName: input.projectName,
     assessmentRunId: input.run.runId,
     catalogVersion: input.run.catalogVersion,
     profileRevision: input.run.profileRevision,
@@ -188,6 +264,9 @@ export function buildReport(input: {
     score: roundedScore,
     prioritizedFindings: sortPrioritizedFindings(projected),
     projectFindingSnapshots: buildProjectFindingSnapshots(input.findings),
+    runControlAssessmentSnapshots: buildRunControlAssessmentSnapshots(
+      input.allAssessments, input.translatedAssessments, input.controls, input.run.runId
+    ),
     releaseEvaluation: roundedReleaseEvaluation,
     target: input.run.target ?? null,
     profileSnapshot: input.run.profileSnapshot ?? null,

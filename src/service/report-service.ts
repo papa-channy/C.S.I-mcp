@@ -64,6 +64,7 @@ export class ReportService {
 
     const report = buildReport({
       reportId: generateUuid(),
+      projectName: project.name,
       run: {
         runId: run.runId, projectId: run.projectId, catalogVersion: run.catalogVersion, profileRevision: run.profileRevision,
         target: run.target ?? null, profileSnapshot: run.profileSnapshot ?? null, engineVersionAtRunStart: run.engineVersionAtRunStart ?? null,
@@ -71,6 +72,9 @@ export class ReportService {
       criticalityFormula: { id: criticalityFormula.formulaId, version: criticalityFormula.version },
       generatedAt: this.now,
       score, findings, releaseEvaluation, summary: input.summary,
+      allAssessments: assessments,
+      translatedAssessments: translatedAssessments,
+      controls,
     });
     await this.repository.saveReport(report);
     return report;

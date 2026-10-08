@@ -115,12 +115,12 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
 
   it("saveReport then reload round-trips the ProjectReport", async () => {
     const report = {
-      reportId: "REP-1", projectId: "PRJ-1", assessmentRunId: "RUN-1", catalogVersion: "1.0.0", profileRevision: 1,
+      reportId: "REP-1", projectId: "PRJ-1", projectName: "Demo", assessmentRunId: "RUN-1", catalogVersion: "1.0.0", profileRevision: 1,
       criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" }, generatedAt: "2026-09-28T00:00:00.000Z",
       score: { overallScore: 80, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 }, scoreModel: { id: "M", version: "1" }, domainScores: [] },
-      prioritizedFindings: [], projectFindingSnapshots: [],
+      prioritizedFindings: [], projectFindingSnapshots: [], runControlAssessmentSnapshots: [],
       releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" as const },
-      target: null, profileSnapshot: null, engineVersionAtRunStart: null, reportSchemaVersion: "2.0.0",
+      target: null, profileSnapshot: null, engineVersionAtRunStart: null, reportSchemaVersion: "2.1.0",
       summary: "ok",
     } satisfies ProjectReport;
     await repo.saveReport(report);
@@ -305,11 +305,17 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
     const legacyReportPath = join(dir, "projects", "PRJ-1", "reports", "REP-LEGACY.json");
     mkdirSync(join(dir, "projects", "PRJ-1", "reports"), { recursive: true });
     const legacyReport = {
-      reportId: "REP-LEGACY", projectId: "PRJ-1", assessmentRunId: "RUN-OLD", catalogVersion: "1.0.0", profileRevision: 1,
+      reportId: "REP-LEGACY", projectId: "PRJ-1", projectName: "Demo", assessmentRunId: "RUN-OLD", catalogVersion: "1.0.0", profileRevision: 1,
       criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" }, generatedAt: "2026-08-01T00:00:00.000Z",
       score: { overallScore: 90, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 }, scoreModel: { id: "M", version: "1" }, domainScores: [] },
       prioritizedFindings: [],
-      releaseEvaluation: { gate: 4, controlCoverage: 100, criticalFindings: 0, highFindings: 0, unblockedCriticalAttackPaths: 0, residualRisksAccepted: 0, incidentResponseVerified: true, backupRestoreVerified: true, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" },
+      projectFindingSnapshots: [],
+      runControlAssessmentSnapshots: [],
+      releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" },
+      target: null,
+      profileSnapshot: null,
+      engineVersionAtRunStart: null,
+      reportSchemaVersion: "2.1.0",
       summary: "a pre-2.0.0 report with the old field names and no reportSchemaVersion at all",
     };
     writeFileSync(legacyReportPath, JSON.stringify(legacyReport, null, 2));
@@ -339,8 +345,8 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
 
     const after = readFileSyncUtf8(legacyReportPath);
     expect(after).toBe(before);
-    expect(newReport.reportSchemaVersion).toBe("2.0.0");
+    expect(newReport.reportSchemaVersion).toBe("2.1.0");
     const newReportOnDisk = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "reports", `${newReport.reportId}.json`)));
-    expect(newReportOnDisk.reportSchemaVersion).toBe("2.0.0");
+    expect(newReportOnDisk.reportSchemaVersion).toBe("2.1.0");
   });
 });

@@ -134,6 +134,26 @@ describe("ReportService.generate — single findings fetch and provenance pass-t
     expect(report.profileSnapshot).toBeNull();
     expect(report.engineVersionAtRunStart).toBeNull();
   });
+
+  it("carries projectName from the project record and filters runControlAssessmentSnapshots to the requested run", async () => {
+    const repo = new FakeRepository();
+    await makeGeneratableProject(repo); // creates RUN-1 with 8 blocking-control assessments
+    await repo.saveRun({
+      runId: "RUN-2", projectId: "PRJ-1", planId: "PLAN-1", planVersion: 1, profileRevision: 1,
+      catalogVersion: "9.9.9", batchIds: [], status: "running", startedAt: NOW, completedAt: null,
+    });
+    await repo.saveControlAssessment({
+      assessmentId: "A-RUN2-CTRL", projectId: "PRJ-1", controlId: "RUN2-ONLY-001", controlVersion: 1,
+      runId: "RUN-2", profileRevision: 1,
+      applicability: { autoResult: "applicable", finalResult: "applicable", matchedRules: [], source: "automatic" },
+      status: "PASS", evidenceIds: [], findingIds: [], riskAcceptanceId: null, owner: "x", assessedBy: "x", assessedAt: NOW, nextReviewAt: null, notes: null,
+    });
+    const service = new ReportService(repo, () => NOW);
+    const report = await service.generate({ projectId: "PRJ-1", runId: "RUN-1", summary: "x" });
+    expect(report.projectName).toBe("Demo");
+    expect(report.runControlAssessmentSnapshots.some((s) => s.controlId === "RUN2-ONLY-001")).toBe(false);
+    expect(report.runControlAssessmentSnapshots.length).toBe(8); // only RUN-1's 8 blocking-control assessments
+  });
 });
 
 describe("ReportService.generate — projectFindingSnapshots is project-scoped, not run-scoped", () => {
