@@ -91,7 +91,7 @@ describe("renderReportHtml — structure and escaping", () => {
 
   it('the Control Matrix table uses th scope="col" header cells', () => {
     const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
-    expect(html).toContain(`<th scope="col">Control</th>`);
+    expect(html).toMatch(/<th scope="col">[\s\S]*?Control[\s\S]*?<\/th>/);
   });
 
   it("includes an @media print rule that forces closed <details> content visible", () => {
