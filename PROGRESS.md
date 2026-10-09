@@ -53,17 +53,21 @@ Last updated: 2026-10-09
   `generate_report_html`):** sellable-quality, on branch
   `report-presentation-layer` (not yet merged to `main` — see "Report
   presentation layer follow-up items" below for exactly what's still
-  open). The self-contained HTML report went through a full visual/
-  information-architecture redesign, independently reviewed across 3
-  rounds in a separate ChatGPT design-review thread (synthetic/mock data
-  only — real assessment content never leaves this machine), final
-  verdict 9.2/10 "ready to ship." Re-verified against the real
-  46-control Chatwoot validation report with no overflow or console
-  errors at 375/900/1280/1920px. An EN/Korean UI-language toggle was
-  added afterward (bottom of the sidebar, fully client-side, zero
-  network, both languages always embedded in the one server-rendered
-  page) — see the follow-up section for the one real limitation this
-  doesn't cover.
+  open). Went through two redesign rounds: first a visual/IA pass
+  reviewed across 3 rounds in a ChatGPT design thread (9.2/10 "ready to
+  ship", synthetic data only), then a second pivot (2026-10-09) that
+  ported a navy-sidebar app-shell design — independently built by
+  another Claude Code session working the same problem in parallel,
+  in the main checkout — into this renderer, since that session's
+  version had a more developed IA (decision-requirements-first
+  narrative, active/history-split findings) but wasn't wired to
+  `ReportService`/MCP at all (a standalone `scripts/report/render.mjs`
+  CLI). Current renderer keeps the better design and copy from that
+  port while retaining the PresentationModel projection layer, its
+  reference-integrity/limitations invariants, and the EN/Korean i18n
+  toggle (now covering the full redesigned page). Re-verified against
+  the real 46-control Chatwoot validation report in both languages
+  with no console errors. `REPORT_HTML_RENDERER_VERSION` is `2.0.0`.
 
 ## Architecture in one paragraph
 
@@ -311,17 +315,38 @@ one real deployment-breaking bug (`npm run build` never copied the vendored D3 a
 `dist/assets/`, so a built server crashed on startup) plus 4 other genuine bugs — all fixed and
 re-verified.
 
-**2026-10-09 visual/IA redesign + i18n — what's actually done:** the SDD cycle above shipped a
+**2026-10-09 — two redesign rounds plus i18n, what's actually done:** the SDD cycle above shipped a
 functionally/structurally correct but visually plain report ("90s layout" was the user's exact
-read on it). That was then rebuilt end-to-end: full visual + information-architecture redesign
-(verdict-hero Executive Summary, domain-grouped Control Matrix, redesigned Finding cards,
-list-style Evidence/Risk records, customer-facing Scope language), independently reviewed across
-3 rounds in a dedicated ChatGPT design thread using only synthetic mock data, finishing at 9.2/10
-"ready to ship." An EN/Korean language toggle was added afterward (bottom of the sidebar), fully
-client-side and zero-network — covers headings, labels, status/severity vocabulary, and every
-sentence the renderer itself composes (verdict explanation, decision-driver reasons, integrity
-warnings, the D3 chart's axis labels/tooltips), with 9 dedicated Playwright tests
-(`tests/core/report-html-renderer.i18n.test.ts`).
+read on it). Round 1 rebuilt it end-to-end: full visual + information-architecture redesign,
+independently reviewed across 3 rounds in a dedicated ChatGPT design thread using only synthetic
+mock data, finishing at 9.2/10 "ready to ship." An EN/Korean language toggle was added afterward,
+fully client-side and zero-network.
+
+Round 2, later the same day: a *different* Claude Code session, working the exact same report in
+the main checkout in parallel with this worktree, independently built a second, more developed
+redesign (navy sidebar app shell, decision-requirements-first narrative, active/history-split
+findings) as a standalone CLI (`scripts/report/render.mjs` + `.css` + `.js`) — never wired to
+`ReportService`/MCP. Both renderers wrote the same output path, so whichever last regenerated a
+report silently clobbered the other's — which is what sent the user "왜 디자인 개편을 롤백했어" to
+begin with. Resolution: ported that session's design/copy into *this* renderer (the one MCP
+actually serves) rather than keeping two implementations, preserving PresentationModel, its
+referenceIntegrity/limitations invariants, and the i18n toggle — now covering the full redesigned
+page (headings, labels, status/severity vocabulary, decision-requirement/finding/control copy,
+the D3 chart). `REPORT_HTML_RENDERER_VERSION` bumped `1.0.0` → `2.0.0`. 9 dedicated Playwright
+tests (`tests/core/report-html-renderer.i18n.test.ts`), all 5 renderer test files updated for the
+new structure (587/587 passing overall).
+
+**`scripts/report/render.mjs` and friends, still sitting untracked in the main checkout, are now
+superseded** — kept, not deleted, since they're another session's uncommitted work in a different
+working tree. Worth confirming with that session (or just deleting) once this branch merges.
+
+**Not ported: the editorial-overlay system.** The reference implementation could take an optional
+side JSON (`projectDisplayName`, per-finding `title`/`impact`/`action`/`verify`, per-control
+`title`/`nextStep`) to add human-authored summaries without touching the underlying engine
+verdict/severity/status — a genuinely well-designed feature. Not carried over because nothing in
+this codebase would call `renderReportHtml` with such data yet (no MCP tool, no `ReportService`
+parameter) — adding an unused optional parameter now would be exactly the kind of dead
+abstraction this project avoids. Revisit if/when there's an actual authoring flow for it.
 
 **The one real, structural limitation of the i18n toggle — not a bug, not fixable at this layer:**
 it translates the renderer's own UI chrome only. Finding titles, control titles, evidence
