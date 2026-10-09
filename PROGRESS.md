@@ -6,7 +6,7 @@ through to run security reviews against real projects, score them, and
 produce prioritized, reproducible reports. This document tracks what's
 built, how it's organized, and what's left.
 
-Last updated: 2026-09-30
+Last updated: 2026-10-09
 
 ## Status at a glance
 
@@ -25,7 +25,7 @@ Last updated: 2026-09-30
   last of the originally-planned control domains — see "Key design
   decisions" below for how its controls stay applicable regardless of a
   project's technical profile.
-- **Test suite:** 325/325 passing, 48 files (`npm test`).
+- **Test suite:** 587/587 passing, 61 files (`npm test`).
 - **Core Engine (pure-function computation layer):** done, merged — see
   `docs/superpowers/specs/2026-09-28-core-engine-design.md` and
   `docs/superpowers/plans/2026-09-28-core-engine-implementation.md`. 7
@@ -49,6 +49,21 @@ Last updated: 2026-09-30
   `appsec`, `infrastructure`, `operations`, `platform-specific`,
   `data-crypto`, `devops-supply-chain`, `governance`) — all 8 originally
   planned domains are now written.
+- **Report presentation layer (`src/core/report-html-renderer.ts`,
+  `generate_report_html`):** sellable-quality, on branch
+  `report-presentation-layer` (not yet merged to `main` — see "Report
+  presentation layer follow-up items" below for exactly what's still
+  open). The self-contained HTML report went through a full visual/
+  information-architecture redesign, independently reviewed across 3
+  rounds in a separate ChatGPT design-review thread (synthetic/mock data
+  only — real assessment content never leaves this machine), final
+  verdict 9.2/10 "ready to ship." Re-verified against the real
+  46-control Chatwoot validation report with no overflow or console
+  errors at 375/900/1280/1920px. An EN/Korean UI-language toggle was
+  added afterward (bottom of the sidebar, fully client-side, zero
+  network, both languages always embedded in the one server-rendered
+  page) — see the follow-up section for the one real limitation this
+  doesn't cover.
 
 ## Architecture in one paragraph
 
@@ -294,7 +309,31 @@ The `report-presentation-layer` cycle (`ProjectReport` 2.1, `PresentationModel`,
 `generate_report_html`) went through its own final whole-branch review, which caught and fixed
 one real deployment-breaking bug (`npm run build` never copied the vendored D3 asset into
 `dist/assets/`, so a built server crashed on startup) plus 4 other genuine bugs — all fixed and
-re-verified. What's left, explicitly deferred rather than silently dropped:
+re-verified.
+
+**2026-10-09 visual/IA redesign + i18n — what's actually done:** the SDD cycle above shipped a
+functionally/structurally correct but visually plain report ("90s layout" was the user's exact
+read on it). That was then rebuilt end-to-end: full visual + information-architecture redesign
+(verdict-hero Executive Summary, domain-grouped Control Matrix, redesigned Finding cards,
+list-style Evidence/Risk records, customer-facing Scope language), independently reviewed across
+3 rounds in a dedicated ChatGPT design thread using only synthetic mock data, finishing at 9.2/10
+"ready to ship." An EN/Korean language toggle was added afterward (bottom of the sidebar), fully
+client-side and zero-network — covers headings, labels, status/severity vocabulary, and every
+sentence the renderer itself composes (verdict explanation, decision-driver reasons, integrity
+warnings, the D3 chart's axis labels/tooltips), with 9 dedicated Playwright tests
+(`tests/core/report-html-renderer.i18n.test.ts`).
+
+**The one real, structural limitation of the i18n toggle — not a bug, not fixable at this layer:**
+it translates the renderer's own UI chrome only. Finding titles, control titles, evidence
+descriptions, attack scenarios, and risk-acceptance reasons stay in whatever language the
+assessment engine produced them in — currently always English — regardless of which language is
+selected. Translating that content would mean the renderer inventing or altering wording the
+engine never actually produced, which breaks the same "no new judgment in the presentation layer"
+invariant this whole cycle has held to throughout. A reader expecting "한국어" to mean "this
+report's findings are in Korean" will be surprised; the UI shows a disclaimer to that effect
+under the toggle once Korean is selected, but the underlying gap is a product question (does a
+Korean-language report need the *engine* to generate Korean content?), not a rendering one — not
+addressed here, not currently planned.
 
 - **Catalog-vs-user-data packaging split.** `data/` mixes git-tracked static catalog content
   (`controls/`, `schemas/`, `core/`, `catalogs/`, `process/`, `manifest.json` — meant to ship
