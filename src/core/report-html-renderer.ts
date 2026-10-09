@@ -226,14 +226,19 @@ function renderExecutiveSummary(model: PresentationModel, latest: Map<string, Co
     const partsKo: string[] = [];
     if (e.blockingControlFailures.length) {
       partsEn.push(`${e.blockingControlFailures.length} blocking control${e.blockingControlFailures.length === 1 ? "" : "s"} failed`);
-      partsKo.push(`차단 조건 컨트롤 ${e.blockingControlFailures.length}개가 실패했고`);
+      partsKo.push(`${e.blockingControlFailures.length}개 실패`);
     }
     if (e.blockingControlsNotVerified.length) {
       partsEn.push(`${e.blockingControlsNotVerified.length} blocking control${e.blockingControlsNotVerified.length === 1 ? "" : "s"} could not be verified`);
-      partsKo.push(`${e.blockingControlsNotVerified.length}개는 검증되지 않았습니다`);
+      partsKo.push(`${e.blockingControlsNotVerified.length}개 미검증`);
     }
     explanationEn.push(`${partsEn.join(" and ")}.`);
-    explanationKo.push(`${partsKo.join(", ")}.`);
+    // "차단 조건 컨트롤" (blocking control) is a shared prefix attached once here, never inside
+    // a single fragment — the earlier version put it only in the "failed" fragment, so a report
+    // with zero failures and only not-verified controls rendered a subject-less sentence
+    // ("6개는 검증되지 않았습니다.", "6 of what?"). This mirrors how the finding-count sentence
+    // below already avoids the same trap (its "발견 사항" noun is a suffix, not per-fragment).
+    explanationKo.push(`차단 조건 컨트롤 ${partsKo.join(", ")}.`);
   }
   if (e.confirmedCritical || e.confirmedHigh) {
     const partsEn: string[] = [];

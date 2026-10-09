@@ -36,7 +36,7 @@ function sampleReport(): ProjectReport {
       { findingId: "FND-3", title: "Third sample finding", type: "control_gap", severity: "low", controlIds: [], status: "resolved", priorityIndex: 6, criticalityIndex: 6 },
     ],
     releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" },
-    target: { available: true, repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false, provenanceKind: "caller-asserted" },
+    target: { repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false },
     profileSnapshot: null, engineVersionAtRunStart: null,
     reportSchemaVersion: "2.1.0", summary: "ok",
     runControlAssessmentSnapshots: [{
