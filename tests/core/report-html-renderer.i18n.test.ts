@@ -10,11 +10,11 @@ import type { ProjectReport } from "../../src/core/report-builder.js";
 const d3Source = readFileSync("src/assets/d3.v7.min.js", "utf-8");
 const OPTS = { rendererVersion: "1.0.0", rendererRenderedAt: "2026-10-08T00:00:00.000Z", sourceReportSha256: "a".repeat(64) };
 
-// Target available (so the header's target line renders) and two contributing run IDs on the
-// score scope (so the project_scoped_score_release limitation — the one Korean message that
-// reconstructs itself from structured data instead of a static table lookup — actually fires).
-// Three findings with real priority/criticality divergence so the Prioritization Map chart
-// renders too, exercising its own, separately-wired i18n path.
+// Target available (so the Scope section's target summary renders) and two contributing run IDs
+// on the score scope (so the project_scoped_score_release limitation — the one Korean message
+// that reconstructs itself from structured data instead of a static table lookup — actually
+// fires). Three findings (two open, one resolved) with real priority/criticality divergence so
+// both the active/history finding split and the Prioritization Map chart's own i18n path exercise.
 function sampleReport(): ProjectReport {
   return {
     reportId: "REP-I18N", projectId: "PRJ-1", projectName: "I18N Check", assessmentRunId: "RUN-1",
@@ -68,8 +68,8 @@ function renderHtml(): string {
 describe("renderReportHtml — i18n markup (static string checks)", () => {
   it("wraps known static chrome strings in .i18n spans carrying the Korean text as data-ko", () => {
     const html = renderHtml();
-    expect(html).toContain('<span class="i18n" data-ko="요약">Executive Summary</span>');
-    expect(html).toContain('<span class="i18n" data-ko="발견 사항">Findings</span>');
+    expect(html).toContain('<span class="i18n" data-ko="필수 확인 항목">Decision Requirements</span>');
+    expect(html).toContain('<span class="i18n" data-ko="발견사항 · 조치">Findings &amp; Actions</span>');
   });
 
   it("renders the sidebar language toggle with both buttons present and English active by default", () => {
@@ -105,17 +105,17 @@ describe("renderReportHtml — i18n toggle, real browser (Playwright/Chromium)",
 
     const before = await page.evaluate(() => ({
       lang: document.documentElement.getAttribute("lang"),
-      heading: document.getElementById("executive-summary-heading")!.textContent,
+      heading: document.getElementById("findings-heading")!.textContent,
       findingTitle: document.querySelector(".finding-title")!.textContent,
       controlTitle: document.querySelector(".control-title")!.textContent,
     }));
     expect(before.lang).toBe("en");
-    expect(before.heading).toBe("Executive Summary");
+    expect(before.heading).toBe("Findings and next actions");
 
     await page.click('[data-lang-btn="ko"]');
     const afterKo = await page.evaluate(() => ({
       lang: document.documentElement.getAttribute("lang"),
-      heading: document.getElementById("executive-summary-heading")!.textContent,
+      heading: document.getElementById("findings-heading")!.textContent,
       findingTitle: document.querySelector(".finding-title")!.textContent,
       controlTitle: document.querySelector(".control-title")!.textContent,
       enPressed: document.querySelector('[data-lang-btn="en"]')!.getAttribute("aria-pressed"),
@@ -123,7 +123,7 @@ describe("renderReportHtml — i18n toggle, real browser (Playwright/Chromium)",
       noteHidden: (document.querySelector("[data-lang-note]") as HTMLElement).hidden,
     }));
     expect(afterKo.lang).toBe("ko");
-    expect(afterKo.heading).toBe("요약");
+    expect(afterKo.heading).toBe("발견사항과 다음 조치");
     // The invariant this whole feature depends on: translating UI chrome must never touch
     // caller-supplied assessment content.
     expect(afterKo.findingTitle).toBe(before.findingTitle);
@@ -135,11 +135,11 @@ describe("renderReportHtml — i18n toggle, real browser (Playwright/Chromium)",
     await page.click('[data-lang-btn="en"]');
     const afterEn = await page.evaluate(() => ({
       lang: document.documentElement.getAttribute("lang"),
-      heading: document.getElementById("executive-summary-heading")!.textContent,
+      heading: document.getElementById("findings-heading")!.textContent,
       noteHidden: (document.querySelector("[data-lang-note]") as HTMLElement).hidden,
     }));
     expect(afterEn.lang).toBe("en");
-    expect(afterEn.heading).toBe("Executive Summary");
+    expect(afterEn.heading).toBe("Findings and next actions");
     expect(afterEn.noteHidden).toBe(true);
 
     await page.close();
@@ -149,13 +149,17 @@ describe("renderReportHtml — i18n toggle, real browser (Playwright/Chromium)",
     const page = await browser.newPage();
     await page.setContent(renderHtml(), { waitUntil: "load" });
 
-    await page.click('[data-filter="open"]');
-    const enStatus = await page.textContent("#findings-filter-status");
-    expect(enStatus).toBe("Showing 2 of 3 findings");
+    // Default filter is "active" (needs action only) — 2 of the fixture's 3 findings are open.
+    const initialStatus = await page.textContent("#findings-count");
+    expect(initialStatus).toBe("Showing 2 of 3 findings");
+
+    await page.click('[data-findings-filter="all"]');
+    const enStatus = await page.textContent("#findings-count");
+    expect(enStatus).toBe("Showing 3 of 3 findings");
 
     await page.click('[data-lang-btn="ko"]');
-    const koStatus = await page.textContent("#findings-filter-status");
-    expect(koStatus).toBe("전체 3건 중 2건 표시");
+    const koStatus = await page.textContent("#findings-count");
+    expect(koStatus).toBe("전체 3건 중 3건 표시");
 
     const title = await page.title();
     expect(title).toContain("보안 평가 보고서");
@@ -218,8 +222,8 @@ describe("renderReportHtml — i18n toggle, real browser (Playwright/Chromium)",
     await page.setContent(renderHtml(), { waitUntil: "load" });
     await page.click('[data-lang-btn="ko"]');
     await page.emulateMedia({ media: "print" });
-    const heading = await page.textContent("#executive-summary-heading");
-    expect(heading).toBe("요약");
+    const heading = await page.textContent("#findings-heading");
+    expect(heading).toBe("발견사항과 다음 조치");
     await page.close();
   });
 });

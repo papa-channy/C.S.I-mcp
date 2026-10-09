@@ -119,6 +119,7 @@ export interface PresentationModel {
   executive: {
     verdict: ProjectReport["releaseEvaluation"]["result"];
     coverage: { percent: number; assessed: number; applicable: number };
+    overallScore: number;
     confirmedCritical: number;
     confirmedHigh: number;
     blockingControlFailures: string[];
@@ -241,6 +242,7 @@ export function buildPresentationModel(
       assessed: report.score.coverage.assessedControls,
       applicable: report.score.coverage.applicableControls,
     },
+    overallScore: report.score.overallScore,
     confirmedCritical: report.releaseEvaluation.confirmedCriticalVulnerabilities,
     confirmedHigh: report.releaseEvaluation.confirmedHighVulnerabilities,
     blockingControlFailures: [...report.releaseEvaluation.blockingControlFailures],

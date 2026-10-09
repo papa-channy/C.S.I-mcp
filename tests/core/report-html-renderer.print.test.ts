@@ -17,7 +17,7 @@ function sampleReport(): ProjectReport {
     catalogVersion: "9.9.9", profileRevision: 1, criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" },
     generatedAt: "2026-10-08T00:00:00.000Z",
     score: {
-      overallScore: 100, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 },
+      overallScore: 88, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 },
       scoreModel: { id: "x", version: "1.0.0" },
       domainScores: [{ domain: "appsec", score: 100, totalControls: 1, applicableControls: 1, assessedControls: 1, coveragePercent: 100, passCount: 1, failCount: 0, partialCount: 0, notTestedCount: 0, notApplicableCount: 0, acceptedRiskCount: 0, criticalSeverityFindings: 0, highSeverityFindings: 0 }],
     },
@@ -84,9 +84,9 @@ describe("renderReportHtml — print support, real browser (Playwright/Chromium,
     const page = await browser.newPage();
     await page.setContent(renderHtml(), { waitUntil: "load" });
     await page.emulateMedia({ media: "print" });
-    const isOpenAttributeSet = await page.locator(".finding-card").first().evaluate((el) => (el as HTMLDetailsElement).open);
+    const isOpenAttributeSet = await page.locator(".finding").first().evaluate((el) => (el as HTMLDetailsElement).open);
     expect(isOpenAttributeSet).toBe(false); // the <details> element's own open attribute is untouched by print mode...
-    const dlVisible = await page.locator(".finding-card dl").first().isVisible();
+    const dlVisible = await page.locator(".finding dl").first().isVisible();
     expect(dlVisible).toBe(true); // ...but the print stylesheet (Task 4's `details:not([open]) > *:not(summary)` rule) forces its content block to render anyway
     await page.close();
   });

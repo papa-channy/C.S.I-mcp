@@ -56,9 +56,13 @@ function render(): JSDOM {
 }
 
 describe("renderReportHtml — accessibility baseline, DOM/parser-level structural checks (jsdom, spec §7)", () => {
-  it("has exactly one <header>, <nav>, <main>, and <footer> landmark", () => {
+  it("has exactly one page-identity <header>, <nav>, <main>, and <footer> landmark", () => {
     const dom = render();
-    expect(dom.window.document.querySelectorAll("header").length).toBe(1);
+    // Every <section> also carries its own <header class="section-heading"> (and each evidence
+    // record its own <header>) — standard HTML5 (a <header> introduces its nearest sectioning
+    // ancestor's content, not just the page), so the page-level identity header is identified by
+    // its class rather than by being the only <header> in the document.
+    expect(dom.window.document.querySelectorAll("header.report-header").length).toBe(1);
     expect(dom.window.document.querySelectorAll("nav").length).toBe(1);
     expect(dom.window.document.querySelectorAll("main").length).toBe(1);
     expect(dom.window.document.querySelectorAll("footer").length).toBe(1);
@@ -75,26 +79,26 @@ describe("renderReportHtml — accessibility baseline, DOM/parser-level structur
 
   it("uses a native <details>/<summary> pair for each finding card, not a div with an onclick handler", () => {
     const dom = render();
-    const card = dom.window.document.querySelectorAll(".finding-card")[0];
+    const card = dom.window.document.querySelectorAll(".finding")[0];
     expect(card.tagName).toBe("DETAILS");
     expect(card.querySelector("summary")).not.toBeNull();
   });
 
   it("uses native <button> elements for the findings status filter", () => {
     const dom = render();
-    const filterControl = dom.window.document.querySelectorAll("[data-filter]")[0];
+    const filterControl = dom.window.document.querySelectorAll("[data-findings-filter]")[0];
     expect(filterControl.tagName).toBe("BUTTON");
   });
 
-  it('the findings filter status region has aria-live="polite"', () => {
+  it('the findings count status region has aria-live="polite"', () => {
     const dom = render();
-    expect(dom.window.document.getElementById("findings-filter-status")?.getAttribute("aria-live")).toBe("polite");
+    expect(dom.window.document.getElementById("findings-count")?.getAttribute("aria-live")).toBe("polite");
   });
 
-  it('the Control Matrix header row uses th scope="col" and the body uses th scope="row" per control', () => {
+  it('the Control Register header row uses th scope="col" and the body uses th scope="row" per control', () => {
     const dom = render();
-    expect(dom.window.document.querySelectorAll('table thead th[scope="col"]').length).toBeGreaterThan(0);
-    expect(dom.window.document.querySelectorAll('table tbody th[scope="row"]').length).toBe(1);
+    expect(dom.window.document.querySelectorAll('table.control-matrix thead th[scope="col"]').length).toBeGreaterThan(0);
+    expect(dom.window.document.querySelectorAll('table.control-matrix tbody th[scope="row"]').length).toBe(1);
   });
 
   it("the priority/criticality scatter <svg> has a <title> child element", () => {
@@ -118,14 +122,16 @@ describe("renderReportHtml — accessibility baseline, real-browser keyboard int
   it("Tab-focusing the findings filter button and pressing Enter updates the aria-live status text to the new visible count", async () => {
     const page = await browser.newPage();
     await page.setContent(renderHtml(), { waitUntil: "load" });
-    const initialStatus = await page.textContent("#findings-filter-status");
-    expect(initialStatus).toBe("Showing 2 of 2 findings");
-    await page.locator('[data-filter="open"]').focus();
-    const focusedDataFilter = await page.evaluate(() => document.activeElement?.getAttribute("data-filter"));
-    expect(focusedDataFilter).toBe("open");
+    // Default filter is "active" (needs-action only) — of the fixture's 2 findings (1 open, 1
+    // resolved), only the open one is visible until a tab switches the filter.
+    const initialStatus = await page.textContent("#findings-count");
+    expect(initialStatus).toBe("Showing 1 of 2 findings");
+    await page.locator('[data-findings-filter="all"]').focus();
+    const focusedFilter = await page.evaluate(() => document.activeElement?.getAttribute("data-findings-filter"));
+    expect(focusedFilter).toBe("all");
     await page.keyboard.press("Enter");
-    const updatedStatus = await page.textContent("#findings-filter-status");
-    expect(updatedStatus).toBe("Showing 1 of 2 findings");
+    const updatedStatus = await page.textContent("#findings-count");
+    expect(updatedStatus).toBe("Showing 2 of 2 findings");
     await page.close();
   });
 });

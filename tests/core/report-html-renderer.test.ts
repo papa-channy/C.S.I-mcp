@@ -17,7 +17,7 @@ function sampleModel(overrides: Partial<PresentationModel> = {}): PresentationMo
       target: { available: true, repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false, provenanceKind: "caller-asserted" },
     },
     executive: {
-      verdict: "approved", coverage: { percent: 100, assessed: 1, applicable: 1 },
+      verdict: "approved", coverage: { percent: 100, assessed: 1, applicable: 1 }, overallScore: 92,
       confirmedCritical: 0, confirmedHigh: 0, blockingControlFailures: [], blockingControlsNotVerified: [],
       topPrioritizedFinding: null,
     },
@@ -89,7 +89,7 @@ describe("renderReportHtml — structure and escaping", () => {
     expect(html).toMatch(/<footer/);
   });
 
-  it('the Control Matrix table uses th scope="col" header cells', () => {
+  it('the Control Register table uses th scope="col" header cells', () => {
     const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
     expect(html).toMatch(/<th scope="col">[\s\S]*?Control[\s\S]*?<\/th>/);
   });
@@ -99,12 +99,13 @@ describe("renderReportHtml — structure and escaping", () => {
     expect(html).toMatch(/@media print[\s\S]*details:not\(\[open\]\)/);
   });
 
-  it("renders a legacy-unavailable target badge when metadata.target.available is false", () => {
+  it("notes a legacy-unavailable target as an assessment limitation when metadata.target.available is false", () => {
     const model = sampleModel({
       metadata: { ...sampleModel().metadata, target: { available: false, repository: null, commitSha: null, branchOrTag: null, dirty: null, provenanceKind: "legacy-unavailable" } },
+      limitations: [{ code: "legacy_provenance_unavailable", severity: "warning", message: "legacy" }],
     });
     const html = renderReportHtml(model, { d3Source: D3_STUB });
-    expect(html).toContain("target provenance unavailable");
+    expect(html).toContain("legacy-format assessment record");
   });
 
   it("is a pure function: same model and opts produce byte-identical output", () => {
