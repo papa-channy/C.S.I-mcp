@@ -1,4 +1,4 @@
-import type { PresentationModel, ControlRow, PresentationLimitationCode } from "./presentation-model.js";
+import type { PresentationModel, ControlRow, PresentationLimitation, PresentationLimitationCode } from "./presentation-model.js";
 import type { AssessmentScopes } from "./report-builder.js";
 import {
   escapeHtmlText as text,
@@ -211,6 +211,7 @@ function renderSidebar(): string {
     <button type="button" data-lang-btn="en" aria-pressed="true">EN</button>
     <button type="button" data-lang-btn="ko" aria-pressed="false">한국어</button>
   </div>
+  <p class="lang-note" data-lang-note hidden>실제 평가 내용(발견 사항, 증적, 공격 시나리오 등)은 원본 언어로 표시됩니다.</p>
 </nav>`;
 }
 
@@ -530,15 +531,25 @@ const INTEGRITY_LIMITATION_CODES = new Set<PresentationLimitationCode>([
 
 // Korean translations for the presentation-model-sourced limitation messages (model.limitations
 // is built in presentation-model.ts, not here, so these are looked up by the stable enum code
-// rather than translated from the free-text English message). A code with no entry here — in
-// practice only project_scoped_score_release, whose message embeds a dynamic run-id list —
-// falls back to the English message even in Korean mode rather than risk a fragile reconstruction.
+// rather than translated from the free-text English message). project_scoped_score_release is
+// handled separately below, by limitationMessageKo(), because its English message embeds a
+// dynamic run-id list this table can't hold statically — reconstructing it from
+// assessmentScopes.score (the same structured data the English message was built from, not a
+// parse of the English text) keeps the Korean version accurate instead of a guess.
 const LIMITATION_MESSAGE_KO: Partial<Record<PresentationLimitationCode, string>> = {
   legacy_provenance_unavailable: "이 리포트는 대상/프로파일/엔진 버전 출처 정보가 기록되지 않은 레거시 평가 실행에서 생성되었습니다.",
   target_caller_asserted: "평가 대상(저장소/커밋/브랜치)은 호출자가 주장한 값이며, 이 서버가 독립적으로 검증하지 않았습니다.",
   project_scoped_findings: "발견 사항은 프로젝트 단위로 범위가 지정되며, 이 리포트와 다른 평가 실행에서 기록된 발견 사항이 포함될 수 있습니다.",
   rounded_display_values: "화면에 표시되는 점수와 커버리지 백분율은 소수점 둘째 자리에서 반올림되며, 배포 판정은 반올림 전 값으로 계산되었습니다.",
 };
+
+function limitationMessageKo(l: PresentationLimitation, s: AssessmentScopes): string {
+  if (l.code === "project_scoped_score_release" && s.score.kind === "project-assessment-set") {
+    const ids = s.score.contributingRunIds.map((r) => text(r)).join(", ");
+    return `점수 및 배포 판정은 이 리포트 자체의 실행뿐 아니라 ${s.score.contributingRunIds.length}개의 평가 실행(${ids})에서 나온 컨트롤 평가 결과를 반영합니다.`;
+  }
+  return LIMITATION_MESSAGE_KO[l.code] ?? l.message;
+}
 
 function renderReportIntegrity(model: PresentationModel): string {
   const ri = model.referenceIntegrity;
@@ -590,7 +601,7 @@ function renderScopeMethodologyLimitations(model: PresentationModel): string {
 
   const genuineLimitations = model.limitations.filter((l) => !INTEGRITY_LIMITATION_CODES.has(l.code));
   const limitationItems = genuineLimitations.length
-    ? `<ul class="limitation-list">${genuineLimitations.map((l) => `<li>${t(l.message, LIMITATION_MESSAGE_KO[l.code] ?? l.message)}</li>`).join("")}</ul>`
+    ? `<ul class="limitation-list">${genuineLimitations.map((l) => `<li>${t(l.message, limitationMessageKo(l, s))}</li>`).join("")}</ul>`
     : `<p>${t("No assessment limitations were recorded.", "기록된 평가 한계 사항이 없습니다.")}</p>`;
 
   return `<section id="scope-methodology-limitations" aria-labelledby="scope-methodology-limitations-heading">
@@ -713,6 +724,7 @@ nav[aria-label="Report sections"] { position: sticky; top: calc(env(safe-area-in
 .lang-toggle button { flex: 1; font: inherit; font-size: 0.78rem; font-weight: 600; padding: 6px 4px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; }
 .lang-toggle button:hover { background: var(--surface-subtle); }
 .lang-toggle button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--text-inverse); }
+.lang-note { margin: 8px 4px 0; font-size: 0.7rem; line-height: 1.4; color: var(--text-tertiary); }
 
 .verdict-panel { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--border-strong); border-radius: 12px; padding: 22px 24px; }
 .verdict-panel--blocked { border-top-color: var(--severity-critical); }
@@ -873,6 +885,15 @@ const CLIENT_SCRIPT = `
   var dataEl = document.getElementById("report-data");
   var data = JSON.parse(dataEl.textContent);
 
+  var SCATTER_I18N = {
+    en: { xLabel: "Priority index", yLabel: "Criticality index", svgTitle: "Priority versus criticality plot",
+          svgAriaLabel: "Priority versus criticality plot of findings, each point labeled with its finding ID",
+          tooltip: function (d) { return d.title + " — Priority index: " + d.priorityIndex + " / Criticality index: " + d.criticalityIndex; } },
+    ko: { xLabel: "우선순위 지수", yLabel: "심각도 지수", svgTitle: "우선순위 대 심각도 그래프",
+          svgAriaLabel: "발견 사항의 우선순위 대 심각도 그래프, 각 점에 발견 사항 ID가 표시됨",
+          tooltip: function (d) { return d.title + " — 우선순위 지수: " + d.priorityIndex + " / 심각도 지수: " + d.criticalityIndex; } }
+  };
+
   function buildScatter() {
     var svg = d3.select("#priority-criticality-scatter");
     var width = 480, height = 320, margin = { top: 20, right: 20, bottom: 40, left: 40 };
@@ -880,21 +901,32 @@ const CLIENT_SCRIPT = `
     var y = d3.scaleLinear().domain([0, 9]).range([height - margin.bottom, margin.top]);
     svg.append("g").attr("transform", "translate(0," + (height - margin.bottom) + ")").call(d3.axisBottom(x).ticks(9));
     svg.append("g").attr("transform", "translate(" + margin.left + ",0)").call(d3.axisLeft(y).ticks(9));
-    svg.append("text").attr("x", width / 2).attr("y", height - 4).attr("text-anchor", "middle").text("Priority index");
-    svg.append("text").attr("x", -height / 2).attr("y", 12).attr("transform", "rotate(-90)").attr("text-anchor", "middle").text("Criticality index");
+    svg.append("text").attr("class", "axis-label-x").attr("x", width / 2).attr("y", height - 4).attr("text-anchor", "middle").text(SCATTER_I18N.en.xLabel);
+    svg.append("text").attr("class", "axis-label-y").attr("x", -height / 2).attr("y", 12).attr("transform", "rotate(-90)").attr("text-anchor", "middle").text(SCATTER_I18N.en.yLabel);
     var points = svg.append("g").selectAll("g.point").data(data.findings).join("g").attr("class", "point");
     points.append("circle")
       .attr("cx", function (d) { return x(d.priorityIndex); })
       .attr("cy", function (d) { return y(d.criticalityIndex); })
       .attr("r", 5)
       .attr("fill", function (d) { return getComputedStyle(document.documentElement).getPropertyValue("--severity-" + d.severity.toLowerCase()) || "#6b7280"; })
-      .append("title").text(function (d) { return d.title + " — Priority index: " + d.priorityIndex + " / Criticality index: " + d.criticalityIndex; });
+      .append("title").text(SCATTER_I18N.en.tooltip);
     points.append("text")
       .attr("x", function (d) { return x(d.priorityIndex) + 7; })
       .attr("y", function (d) { return y(d.criticalityIndex) - 7; })
       .attr("font-size", "9px")
       .attr("fill", "currentColor")
       .text(function (d) { return d.findingId; });
+
+    window.__csiUpdateScatterLang = function (lang) {
+      var dict = SCATTER_I18N[lang] || SCATTER_I18N.en;
+      var node = svg.node();
+      node.querySelector(".axis-label-x").textContent = dict.xLabel;
+      node.querySelector(".axis-label-y").textContent = dict.yLabel;
+      var titleEl = node.querySelector("title");
+      if (titleEl) titleEl.textContent = dict.svgTitle;
+      node.setAttribute("aria-label", dict.svgAriaLabel);
+      svg.selectAll("g.point title").text(dict.tooltip);
+    };
   }
 
   function wireFindingsFilter() {
@@ -979,6 +1011,17 @@ const CLIENT_SCRIPT = `
     var root = document.documentElement;
     var buttons = document.querySelectorAll("[data-lang-btn]");
     var nodes = document.querySelectorAll(".i18n");
+    var note = document.querySelector("[data-lang-note]");
+    var TITLE_EN = " — Security Assessment Report";
+    var TITLE_KO = " — 보안 평가 보고서";
+
+    function applyTitle(lang) {
+      if (lang === "ko" && document.title.indexOf(TITLE_EN) !== -1) {
+        document.title = document.title.replace(TITLE_EN, TITLE_KO);
+      } else if (lang === "en" && document.title.indexOf(TITLE_KO) !== -1) {
+        document.title = document.title.replace(TITLE_KO, TITLE_EN);
+      }
+    }
 
     function apply(lang) {
       nodes.forEach(function (el) {
@@ -988,8 +1031,11 @@ const CLIENT_SCRIPT = `
       });
       root.setAttribute("lang", lang);
       buttons.forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-lang-btn") === lang)); });
+      if (note) note.hidden = lang !== "ko";
+      applyTitle(lang);
       if (typeof window.__csiRenderFindingsStatus === "function") window.__csiRenderFindingsStatus();
       if (typeof window.__csiSyncTocLabel === "function") window.__csiSyncTocLabel();
+      if (typeof window.__csiUpdateScatterLang === "function") window.__csiUpdateScatterLang(lang);
       try { localStorage.setItem(STORAGE_KEY, lang); } catch (err) { /* private browsing or storage disabled — toggle still works for this view */ }
     }
 
