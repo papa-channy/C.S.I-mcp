@@ -115,12 +115,21 @@ describe("JsonRepository — project-instance read/write (temp data/ tree)", () 
 
   it("saveReport then reload round-trips the ProjectReport", async () => {
     const report = {
-      reportId: "REP-1", projectId: "PRJ-1", assessmentRunId: "RUN-1", catalogVersion: "1.0.0", profileRevision: 1,
+      reportId: "REP-1", projectId: "PRJ-1", projectName: "Demo", assessmentRunId: "RUN-1", catalogVersion: "1.0.0", profileRevision: 1,
       criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" }, generatedAt: "2026-09-28T00:00:00.000Z",
       score: { overallScore: 80, coverage: { applicableControls: 1, assessedControls: 1, coveragePercent: 100 }, scoreModel: { id: "M", version: "1" }, domainScores: [] },
-      prioritizedFindings: [], projectFindingSnapshots: [],
+      prioritizedFindings: [], projectFindingSnapshots: [], runControlAssessmentSnapshots: [],
+      evidenceSnapshots: [], riskAcceptanceSnapshots: [],
+      assessmentScopes: {
+        projectFindingSnapshots: { kind: "project" as const },
+        score: { kind: "project-assessment-set" as const, contributingRunIds: ["RUN-1"] },
+        releaseEvaluation: { kind: "project-assessment-set" as const, contributingRunIds: ["RUN-1"] },
+        runControlAssessmentSnapshots: { kind: "run" as const, runId: "RUN-1" },
+        evidenceSnapshots: { kind: "referenced-by-run" as const, runId: "RUN-1" },
+        riskAcceptanceSnapshots: { kind: "referenced-by-run" as const, runId: "RUN-1" },
+      },
       releaseEvaluation: { gate: 4, controlCoverage: 100, confirmedCriticalVulnerabilities: 0, confirmedHighVulnerabilities: 0, residualRisksAccepted: 0, blockingControlFailures: [], blockingControlsNotVerified: [], result: "approved" as const },
-      target: null, profileSnapshot: null, engineVersionAtRunStart: null, reportSchemaVersion: "2.0.0",
+      target: null, profileSnapshot: null, engineVersionAtRunStart: null, reportSchemaVersion: "2.1.0",
       summary: "ok",
     } satisfies ProjectReport;
     await repo.saveReport(report);
@@ -278,6 +287,8 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
     saveRun: projectRepo.saveRun.bind(projectRepo),
     saveBatch: projectRepo.saveBatch.bind(projectRepo),
     saveReport: projectRepo.saveReport.bind(projectRepo),
+    getReportRawBytes: projectRepo.getReportRawBytes.bind(projectRepo),
+    saveReportHtml: projectRepo.saveReportHtml.bind(projectRepo),
     savePlan: projectRepo.savePlan.bind(projectRepo),
     saveProject: projectRepo.saveProject.bind(projectRepo),
     saveControlAssessment: projectRepo.saveControlAssessment.bind(projectRepo),
@@ -287,7 +298,7 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
   };
 }
 
-describe("JsonRepository — old ProjectReport files are never touched by ReportService.generate()'s normal path", () => {
+describe("JsonRepository — old ProjectReport files are never touched by ReportService.generateData()'s normal path", () => {
   const NOW = "2026-10-06T00:00:00.000Z";
   let dir: string;
   let repo: JsonRepository;
@@ -301,7 +312,7 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("a legacy-shaped report on disk is byte-for-byte unchanged after ReportService.generate() creates a new report for the same project", async () => {
+  it("a legacy-shaped report on disk is byte-for-byte unchanged after ReportService.generateData() creates a new report for the same project", async () => {
     const legacyReportPath = join(dir, "projects", "PRJ-1", "reports", "REP-LEGACY.json");
     mkdirSync(join(dir, "projects", "PRJ-1", "reports"), { recursive: true });
     const legacyReport = {
@@ -335,12 +346,12 @@ describe("JsonRepository — old ProjectReport files are never touched by Report
       });
     }
     const reportService = new ReportService(mixed, () => NOW);
-    const newReport = await reportService.generate({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh 2.0.0 report for the same project" });
+    const newReport = await reportService.generateData({ projectId: "PRJ-1", runId: "RUN-NEW", summary: "a fresh report for the same project" });
 
     const after = readFileSyncUtf8(legacyReportPath);
     expect(after).toBe(before);
-    expect(newReport.reportSchemaVersion).toBe("2.0.0");
+    expect(newReport.reportSchemaVersion).toBe("2.1.0");
     const newReportOnDisk = JSON.parse(readFileSyncUtf8(join(dir, "projects", "PRJ-1", "reports", `${newReport.reportId}.json`)));
-    expect(newReportOnDisk.reportSchemaVersion).toBe("2.0.0");
+    expect(newReportOnDisk.reportSchemaVersion).toBe("2.1.0");
   });
 });

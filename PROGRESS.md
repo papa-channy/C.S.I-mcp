@@ -6,7 +6,7 @@ through to run security reviews against real projects, score them, and
 produce prioritized, reproducible reports. This document tracks what's
 built, how it's organized, and what's left.
 
-Last updated: 2026-09-30
+Last updated: 2026-10-09
 
 ## Status at a glance
 
@@ -25,7 +25,7 @@ Last updated: 2026-09-30
   last of the originally-planned control domains — see "Key design
   decisions" below for how its controls stay applicable regardless of a
   project's technical profile.
-- **Test suite:** 325/325 passing, 48 files (`npm test`).
+- **Test suite:** 587/587 passing, 61 files (`npm test`).
 - **Core Engine (pure-function computation layer):** done, merged — see
   `docs/superpowers/specs/2026-09-28-core-engine-design.md` and
   `docs/superpowers/plans/2026-09-28-core-engine-implementation.md`. 7
@@ -49,6 +49,25 @@ Last updated: 2026-09-30
   `appsec`, `infrastructure`, `operations`, `platform-specific`,
   `data-crypto`, `devops-supply-chain`, `governance`) — all 8 originally
   planned domains are now written.
+- **Report presentation layer (`src/core/report-html-renderer.ts`,
+  `generate_report_html`):** sellable-quality, on branch
+  `report-presentation-layer` (not yet merged to `main` — see "Report
+  presentation layer follow-up items" below for exactly what's still
+  open). Went through two redesign rounds: first a visual/IA pass
+  reviewed across 3 rounds in a ChatGPT design thread (9.2/10 "ready to
+  ship", synthetic data only), then a second pivot (2026-10-09) that
+  ported a navy-sidebar app-shell design — independently built by
+  another Claude Code session working the same problem in parallel,
+  in the main checkout — into this renderer, since that session's
+  version had a more developed IA (decision-requirements-first
+  narrative, active/history-split findings) but wasn't wired to
+  `ReportService`/MCP at all (a standalone `scripts/report/render.mjs`
+  CLI). Current renderer keeps the better design and copy from that
+  port while retaining the PresentationModel projection layer, its
+  reference-integrity/limitations invariants, and the EN/Korean i18n
+  toggle (now covering the full redesigned page). Re-verified against
+  the real 46-control Chatwoot validation report in both languages
+  with no console errors. `REPORT_HTML_RENDERER_VERSION` is `2.0.0`.
 
 ## Architecture in one paragraph
 
@@ -287,6 +306,83 @@ than silently dropped:
 - `withNotFound` (`src/service/errors.ts`) converts *any* rejection into `NOT_FOUND`, not just "the file doesn't exist" — a corrupt `project.json` or a permissions error would also read as "project not found," which could lead an agent to attempt creating a duplicate project instead of surfacing the real failure.
 - No Finding lifecycle tool exists beyond creation (no `update_finding`/`resolve_finding`) — by design, per the spec's explicit out-of-scope list; resolving a finding today means direct data editing.
 - An `AssessmentRun` is never marked `completed` — `start_assessment_run` sets `status: "running"` and nothing ever updates it, including `generate_report`, so every run in the data tree looks perpetually in-flight (schema-valid, but not semantically accurate).
+
+## Report presentation layer follow-up items (parked, not blocking)
+
+The `report-presentation-layer` cycle (`ProjectReport` 2.1, `PresentationModel`,
+`generate_report_html`) went through its own final whole-branch review, which caught and fixed
+one real deployment-breaking bug (`npm run build` never copied the vendored D3 asset into
+`dist/assets/`, so a built server crashed on startup) plus 4 other genuine bugs — all fixed and
+re-verified.
+
+**2026-10-09 — two redesign rounds plus i18n, what's actually done:** the SDD cycle above shipped a
+functionally/structurally correct but visually plain report ("90s layout" was the user's exact
+read on it). Round 1 rebuilt it end-to-end: full visual + information-architecture redesign,
+independently reviewed across 3 rounds in a dedicated ChatGPT design thread using only synthetic
+mock data, finishing at 9.2/10 "ready to ship." An EN/Korean language toggle was added afterward,
+fully client-side and zero-network.
+
+Round 2, later the same day: a *different* Claude Code session, working the exact same report in
+the main checkout in parallel with this worktree, independently built a second, more developed
+redesign (navy sidebar app shell, decision-requirements-first narrative, active/history-split
+findings) as a standalone CLI (`scripts/report/render.mjs` + `.css` + `.js`) — never wired to
+`ReportService`/MCP. Both renderers wrote the same output path, so whichever last regenerated a
+report silently clobbered the other's — which is what sent the user "왜 디자인 개편을 롤백했어" to
+begin with. Resolution: ported that session's design/copy into *this* renderer (the one MCP
+actually serves) rather than keeping two implementations, preserving PresentationModel, its
+referenceIntegrity/limitations invariants, and the i18n toggle — now covering the full redesigned
+page (headings, labels, status/severity vocabulary, decision-requirement/finding/control copy,
+the D3 chart). `REPORT_HTML_RENDERER_VERSION` bumped `1.0.0` → `2.0.0`. 9 dedicated Playwright
+tests (`tests/core/report-html-renderer.i18n.test.ts`), all 5 renderer test files updated for the
+new structure (587/587 passing overall).
+
+**`scripts/report/render.mjs` and friends, still sitting untracked in the main checkout, are now
+superseded** — kept, not deleted, since they're another session's uncommitted work in a different
+working tree. Worth confirming with that session (or just deleting) once this branch merges.
+
+**Not ported: the editorial-overlay system.** The reference implementation could take an optional
+side JSON (`projectDisplayName`, per-finding `title`/`impact`/`action`/`verify`, per-control
+`title`/`nextStep`) to add human-authored summaries without touching the underlying engine
+verdict/severity/status — a genuinely well-designed feature. Not carried over because nothing in
+this codebase would call `renderReportHtml` with such data yet (no MCP tool, no `ReportService`
+parameter) — adding an unused optional parameter now would be exactly the kind of dead
+abstraction this project avoids. Revisit if/when there's an actual authoring flow for it.
+
+**The one real, structural limitation of the i18n toggle — not a bug, not fixable at this layer:**
+it translates the renderer's own UI chrome only. Finding titles, control titles, evidence
+descriptions, attack scenarios, and risk-acceptance reasons stay in whatever language the
+assessment engine produced them in — currently always English — regardless of which language is
+selected. Translating that content would mean the renderer inventing or altering wording the
+engine never actually produced, which breaks the same "no new judgment in the presentation layer"
+invariant this whole cycle has held to throughout. A reader expecting "한국어" to mean "this
+report's findings are in Korean" will be surprised; the UI shows a disclaimer to that effect
+under the toggle once Korean is selected, but the underlying gap is a product question (does a
+Korean-language report need the *engine* to generate Korean content?), not a rendering one — not
+addressed here, not currently planned.
+
+- **Catalog-vs-user-data packaging split.** `data/` mixes git-tracked static catalog content
+  (`controls/`, `schemas/`, `core/`, `catalogs/`, `process/`, `manifest.json` — meant to ship
+  with the package) and gitignored mutable user data (`projects/`, `plans/` — must never ship,
+  can contain undisclosed third-party vulnerability findings) under one root, distinguished only
+  by `.gitignore`. `CSI_MCP_DATA_DIR` (`src/mcp/server.ts`) lets a deployment relocate the whole
+  `data/` root, but doesn't split the two concerns into independently configurable locations —
+  a real packaging/distribution design question for whenever this ships as an installable
+  package, not solved yet. See `CLAUDE.md` for the current handling convention.
+- `data/projects/<slug>` symlinks and the `INDEX.md`/`latest.json`/`latest.html` navigation aids
+  (`scripts/reindex-project-data.ts`) are pure local tooling with no orphan cleanup — if a
+  project's `name` changes, the old slug symlink is left in place pointing at the same
+  `projectId` (harmless, just clutter) rather than being removed.
+- **Per-project version-history landing page — explicitly deferred, not started.** A customer
+  gets reports for *their own single project*, which can be assessed multiple times over time
+  (initial run → remediation → re-assessment to verify fixes) — so each project needs a way to
+  browse its own report history by point in time, not a page that browses across projects. Right
+  now that history exists only as data (`reports/<reportId>.json`/`.html` pairs per run) plus a
+  plain-markdown `reports/INDEX.md` from the reindex tool; there's no designed HTML page for a
+  customer to actually navigate a project's version timeline (e.g. "compare this run to the
+  previous one"). This needs its own brainstorming pass (own information architecture, not a
+  CSS tweak) before implementation — raised and intentionally scoped out of the
+  `report-presentation-layer` visual redesign (2026-10-09) to keep that redesign to a single
+  report's own layout.
 
 ## Next steps, in a reasonable order
 

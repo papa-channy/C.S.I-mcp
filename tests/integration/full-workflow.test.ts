@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -18,7 +19,8 @@ import { registerRecordAssessmentTool } from "../../src/mcp/tools/record-assessm
 import { registerRecordFindingTool } from "../../src/mcp/tools/record-finding.js";
 import { registerGetScoreTool } from "../../src/mcp/tools/get-score.js";
 import { registerEvaluateReleaseTool } from "../../src/mcp/tools/evaluate-release.js";
-import { registerGenerateReportTool } from "../../src/mcp/tools/generate-report.js";
+import { registerGenerateReportDataTool } from "../../src/mcp/tools/generate-report-data.js";
+import { registerGenerateReportHtmlTool } from "../../src/mcp/tools/generate-report-html.js";
 import { compileSchemaFromFile } from "../../src/validate.js";
 
 describe("full MCP workflow, against the real data/ catalog", () => {
@@ -38,7 +40,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     const projectService = new ProjectService(repository);
     const assessmentService = new AssessmentService(mixedRepository(repository, realCatalog), undefined, "0.9.0-test");
     const analysisService = new AnalysisService(mixedRepository(repository, realCatalog));
-    const reportService = new ReportService(mixedRepository(repository, realCatalog));
+    const reportService = new ReportService(mixedRepository(repository, realCatalog), undefined, readFileSync("src/assets/d3.v7.min.js", "utf-8"));
 
     registerCreateProjectTool(server, projectService);
     registerUpdateProjectProfileTool(server, projectService);
@@ -48,7 +50,8 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     registerRecordFindingTool(server, assessmentService);
     registerGetScoreTool(server, analysisService);
     registerEvaluateReleaseTool(server, analysisService);
-    registerGenerateReportTool(server, reportService);
+    registerGenerateReportDataTool(server, reportService);
+    registerGenerateReportHtmlTool(server, reportService);
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: "test-client", version: "0.0.0" });
@@ -111,7 +114,7 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     expect(release.isError).toBeFalsy();
 
     const report = await client.callTool({
-      name: "generate_report",
+      name: "generate_report_data",
       arguments: { projectId, runId, summary: "Integration test run — all controls PASS, one low finding." },
     });
     expect(report.isError).toBeFalsy();
@@ -121,6 +124,25 @@ describe("full MCP workflow, against the real data/ catalog", () => {
     const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
     const valid = validate(reportPayload);
     expect(valid, JSON.stringify(validate.errors)).toBe(true);
+
+    const html = await client.callTool({
+      name: "generate_report_html",
+      arguments: { projectId, reportId: reportPayload.reportId },
+    });
+    expect(html.isError).toBeFalsy();
+    const htmlPayload = html.structuredContent as any;
+    expect(htmlPayload.path).toMatch(/\.html$/);
+    expect(htmlPayload.sourceReportSha256).toMatch(/^[0-9a-f]{64}$/);
+    // The entire point of sourceReportSha256 is provenance: it must equal the actual hash of the
+    // JSON report file on disk at the time generate_report_html read it, not merely look hash-shaped.
+    const savedReportPath = join(dataDir, "projects", projectId, "reports", `${reportPayload.reportId}.json`);
+    const savedReportBytes = readFileSync(savedReportPath);
+    const expectedSha256 = createHash("sha256").update(savedReportBytes).digest("hex");
+    expect(htmlPayload.sourceReportSha256).toBe(expectedSha256);
+    const writtenHtml = readFileSync(htmlPayload.path, "utf-8");
+    expect(writtenHtml).toContain("<!doctype html>");
+    expect(writtenHtml).toContain("Content-Security-Policy");
+    expect(writtenHtml).toContain("Integration Demo");
   });
 });
 
@@ -142,6 +164,8 @@ function mixedRepository(projectRepo: JsonRepository, catalogRepo: JsonRepositor
     saveRun: projectRepo.saveRun.bind(projectRepo),
     saveBatch: projectRepo.saveBatch.bind(projectRepo),
     saveReport: projectRepo.saveReport.bind(projectRepo),
+    getReportRawBytes: projectRepo.getReportRawBytes.bind(projectRepo),
+    saveReportHtml: projectRepo.saveReportHtml.bind(projectRepo),
     savePlan: projectRepo.savePlan.bind(projectRepo),
     saveProject: projectRepo.saveProject.bind(projectRepo),
     saveControlAssessment: projectRepo.saveControlAssessment.bind(projectRepo),

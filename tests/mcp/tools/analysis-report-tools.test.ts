@@ -8,7 +8,7 @@ import { RELEASE_BLOCKING_CONTROLS } from "../../../src/core/release-evaluator.j
 import { FakeRepository } from "../../service/fake-repository.js";
 import { registerGetScoreTool } from "../../../src/mcp/tools/get-score.js";
 import { registerEvaluateReleaseTool } from "../../../src/mcp/tools/evaluate-release.js";
-import { registerGenerateReportTool } from "../../../src/mcp/tools/generate-report.js";
+import { registerGenerateReportDataTool } from "../../../src/mcp/tools/generate-report-data.js";
 
 const NOW = "2026-09-30T00:00:00.000Z";
 
@@ -50,7 +50,7 @@ async function makeConnectedClient() {
   const server = new McpServer({ name: "test", version: "0.0.0" });
   registerGetScoreTool(server, analysisService);
   registerEvaluateReleaseTool(server, analysisService);
-  registerGenerateReportTool(server, reportService);
+  registerGenerateReportDataTool(server, reportService);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "0.0.0" });
@@ -81,9 +81,9 @@ describe("analysis and report tools", () => {
     expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual(["projectId"]);
   });
 
-  it("generate_report produces a ProjectReport", async () => {
+  it("generate_report_data produces a ProjectReport", async () => {
     const { client } = await makeConnectedClient();
-    const result = await client.callTool({ name: "generate_report", arguments: { projectId: "PRJ-1", runId: "RUN-1", summary: "all clear" } });
+    const result = await client.callTool({ name: "generate_report_data", arguments: { projectId: "PRJ-1", runId: "RUN-1", summary: "all clear" } });
     expect((result.structuredContent as any).summary).toBe("all clear");
     expect((result.structuredContent as any).releaseEvaluation.result).toBe("approved");
   });

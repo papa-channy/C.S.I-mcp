@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadJson } from "../validate.js";
 import type { AssessmentPlan, PlanControl } from "./plan-expander.js";
@@ -154,6 +154,8 @@ export interface SecurityRepository {
   saveRun(run: AssessmentRun): Promise<void>;
   saveBatch(batch: AssessmentBatch): Promise<void>;
   saveReport(report: ProjectReport): Promise<void>;
+  getReportRawBytes(projectId: string, reportId: string): Promise<Buffer>;
+  saveReportHtml(projectId: string, reportId: string, html: string): Promise<string>;
   savePlan(plan: AssessmentPlan): Promise<void>;
   saveProject(project: Project): Promise<void>;
   saveControlAssessment(assessment: ControlAssessment): Promise<void>;
@@ -173,6 +175,14 @@ function writeJsonAtomic(path: string, data: unknown): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  renameSync(tmpPath, path);
+}
+
+function writeTextAtomic(path: string, data: string): void {
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmpPath, data);
   renameSync(tmpPath, path);
 }
 
@@ -268,6 +278,24 @@ export class JsonRepository implements SecurityRepository {
     assertSafeIdSegment(report.projectId, "projectId");
     assertSafeIdSegment(report.reportId, "reportId");
     writeJsonAtomic(join(this.dataDir, "projects", report.projectId, "reports", `${report.reportId}.json`), report);
+  }
+
+  async getReportRawBytes(projectId: string, reportId: string): Promise<Buffer> {
+    assertSafeIdSegment(projectId, "projectId");
+    assertSafeIdSegment(reportId, "reportId");
+    const path = join(this.dataDir, "projects", projectId, "reports", `${reportId}.json`);
+    if (!existsSync(path)) {
+      throw new Error(`JsonRepository: no report found at "${path}"`);
+    }
+    return readFileSync(path);
+  }
+
+  async saveReportHtml(projectId: string, reportId: string, html: string): Promise<string> {
+    assertSafeIdSegment(projectId, "projectId");
+    assertSafeIdSegment(reportId, "reportId");
+    const path = join(this.dataDir, "projects", projectId, "reports", `${reportId}.html`);
+    writeTextAtomic(path, html);
+    return path;
   }
 
   async savePlan(plan: AssessmentPlan): Promise<void> {

@@ -6,6 +6,7 @@ describe("project-report-schema", () => {
   const valid = {
     reportId: "RPT-001",
     projectId: "PRJ-001",
+    projectName: "Demo Project",
     assessmentRunId: "RUN-20260919-001",
     catalogVersion: "2.1.0",
     profileRevision: 1,
@@ -40,6 +41,17 @@ describe("project-report-schema", () => {
       { findingId: "FND-003", priorityIndex: 1, criticalityIndex: 9, title: "SQL injection in search endpoint" },
     ],
     projectFindingSnapshots: [],
+    runControlAssessmentSnapshots: [],
+    evidenceSnapshots: [],
+    riskAcceptanceSnapshots: [],
+    assessmentScopes: {
+      projectFindingSnapshots: { kind: "project" },
+      score: { kind: "project-assessment-set", contributingRunIds: ["RUN-20260919-001"] },
+      releaseEvaluation: { kind: "project-assessment-set", contributingRunIds: ["RUN-20260919-001"] },
+      runControlAssessmentSnapshots: { kind: "run", runId: "RUN-20260919-001" },
+      evidenceSnapshots: { kind: "referenced-by-run", runId: "RUN-20260919-001" },
+      riskAcceptanceSnapshots: { kind: "referenced-by-run", runId: "RUN-20260919-001" },
+    },
     releaseEvaluation: {
       gate: 4,
       controlCoverage: 91.67,
@@ -53,7 +65,7 @@ describe("project-report-schema", () => {
     target: null,
     profileSnapshot: null,
     engineVersionAtRunStart: null,
-    reportSchemaVersion: "2.0.0",
+    reportSchemaVersion: "2.1.0",
     summary: "Two critical findings remain open; release blocked until resolved.",
   };
 
@@ -118,7 +130,7 @@ describe("project-report-schema", () => {
     expect(validate(rest)).toBe(false);
   });
 
-  it("rejects a report with any reportSchemaVersion other than the current '2.0.0'", () => {
+  it("rejects a report with any reportSchemaVersion other than the current '2.1.0'", () => {
     const validate = compileSchemaFromFile("data/schemas/project-report-schema.json");
     expect(validate({ ...valid, reportSchemaVersion: "1.0.0" })).toBe(false);
   });

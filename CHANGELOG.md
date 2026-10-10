@@ -12,6 +12,29 @@ history on 2026-10-05, when this file and git tagging were introduced
 shipped, so these are documentation of what happened, not historical
 release artifacts.
 
+## [0.10.0] — 2026-10-08
+
+### Added
+- `projectName`, `runControlAssessmentSnapshots[]` (with `recordedStatus`/`effectiveStatus`/
+  `effectiveStatusReason`), `evidenceSnapshots[]`, `riskAcceptanceSnapshots[]`, and
+  `assessmentScopes` on `ProjectReport`. `reportSchemaVersion` bumped to `"2.1.0"`.
+- `translateAssessmentsForTrust` now returns `recordedStatus`/`effectiveStatusReason`
+  alongside `status`, and distinguishes `risk_acceptance_revoked`/
+  `risk_acceptance_scope_mismatch` from the existing staleness/expiry/missing cases.
+- `buildPresentationModel` (`src/core/presentation-model.ts`): a pure projection from
+  `ProjectReport` to a display-ready `PresentationModel`, with `referenceIntegrity` and
+  `limitations[]` — selection and aggregation only, no new judgment.
+- New `generate_report_html` MCP tool: renders a self-contained, zero-network HTML report
+  (vendored D3, strict escaping, a CSP meta tag) from an existing `2.1.0` `ProjectReport`.
+
+### Changed
+- Breaking: `generate_report` MCP tool renamed to `generate_report_data`. Same input/output
+  shape; the data step is now explicitly in service of the HTML report, not an end in itself.
+- Breaking: an `ACCEPTED_RISK` control assessment whose `riskAcceptanceId` is scoped to a
+  different `controlId` is now treated as `NOT_TESTED` by `calculateScore`/`evaluateRelease`
+  (previously honored as `ACCEPTED_RISK` if otherwise valid) — surfaced via the new
+  `risk_acceptance_scope_mismatch` reason code.
+
 ## [0.9.0] — 2026-10-07
 
 ### Added

@@ -1,0 +1,195 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { renderReportHtml, REPORT_HTML_RENDERER_VERSION } from "../../src/core/report-html-renderer.js";
+import type { PresentationModel } from "../../src/core/presentation-model.js";
+
+const D3_STUB = "/* d3 stub for tests */ var d3 = { select: function () { return { append: function () { return this; }, attr: function () { return this; }, call: function () { return this; }, text: function(){return this;}, selectAll: function () { return { data: function () { return this; }, join: function () { return this; } }; } }; }, scaleLinear: function () { return { domain: function () { return this; }, range: function () { return this; } }; }, axisBottom: function () { return { ticks: function () { return this; } }; }, axisLeft: function () { return { ticks: function () { return this; } }; } };";
+
+function sampleModel(overrides: Partial<PresentationModel> = {}): PresentationModel {
+  return {
+    metadata: {
+      reportId: "REP-1", reportSchemaVersion: "2.1.0", projectId: "PRJ-1", projectName: "Demo <Project> & Co",
+      assessmentRunId: "RUN-1", reportGeneratedAt: "2026-10-08T00:00:00.000Z", engineVersionAtRunStart: "0.10.0",
+      profileRevision: 1, catalogVersion: "9.9.9", criticalityFormula: { id: "CRIT-DEFAULT", version: "1.0.0" },
+      scoreModel: { id: "USSVS-SCORE-DEFAULT", version: "1.0.0" }, rendererVersion: REPORT_HTML_RENDERER_VERSION,
+      rendererRenderedAt: "2026-10-08T00:00:00.000Z", sourceReportSha256: "a".repeat(64),
+      target: { available: true, repository: "example/repo", commitSha: "a".repeat(40), branchOrTag: "main", dirty: false, provenanceKind: "caller-asserted" },
+    },
+    executive: {
+      verdict: "approved", coverage: { percent: 100, assessed: 1, applicable: 1 }, overallScore: 92,
+      confirmedCritical: 0, confirmedHigh: 0, blockingControlFailures: [], blockingControlsNotVerified: [],
+      topPrioritizedFinding: null,
+    },
+    domains: [{ domain: "appsec", score: 100, coverage: { percent: 100, assessed: 1, applicable: 1 } }],
+    controls: [{
+      assessmentId: "A-001", controlId: "CTRL-001", controlVersion: 1, runId: "RUN-1", title: "Title", domain: "appsec",
+      controlDefinitionVersionMismatch: false, recordedStatus: "PASS", effectiveStatus: "PASS", effectiveStatusReason: null,
+      assessedAt: "2026-10-07T00:00:00.000Z", assessedBy: "x", owner: "x", nextReviewAt: null, notes: null,
+      evidenceIds: [], evidence: [], riskAcceptanceId: null, riskAcceptance: null, findingIds: [],
+    }],
+    findings: [{
+      findingId: "FND-1", title: "<script>alert(1)</script> XSS payload", type: "confirmed_vulnerability",
+      severity: "critical", status: "open", priorityIndex: 0, criticalityIndex: 9,
+      attackScenario: "An attacker does </script><script>window.__X__=1</script>", exploitabilityEvidence: null,
+      linkedControlIds: ["CTRL-001"],
+    }],
+    evidence: [], riskAcceptances: [],
+    referenceIntegrity: { missingEvidenceIds: [], missingRiskAcceptanceIds: [], missingFindingIds: [], unresolvedControlDefinitions: [] },
+    limitations: [{ code: "target_caller_asserted", severity: "info", message: "info message" }],
+    assessmentScopes: {
+      projectFindingSnapshots: { kind: "project" },
+      score: { kind: "project-assessment-set", contributingRunIds: ["RUN-1"] },
+      releaseEvaluation: { kind: "project-assessment-set", contributingRunIds: ["RUN-1"] },
+      runControlAssessmentSnapshots: { kind: "run", runId: "RUN-1" },
+      evidenceSnapshots: { kind: "referenced-by-run", runId: "RUN-1" },
+      riskAcceptanceSnapshots: { kind: "referenced-by-run", runId: "RUN-1" },
+    },
+    ...overrides,
+  };
+}
+
+describe("renderReportHtml — structure and escaping", () => {
+  it("includes the zero-network CSP meta tag verbatim", () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    expect(html).toContain(`<meta http-equiv="Content-Security-Policy"`);
+    expect(html).toContain(`default-src 'none'`);
+    expect(html).toContain(`script-src 'unsafe-inline'`);
+  });
+
+  it("escapes a finding title containing HTML special characters as text, never raw", () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt; XSS payload");
+    expect(html).not.toContain("<script>alert(1)</script> XSS payload");
+  });
+
+  it("escapes projectName in the <title> element", () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    expect(html).toContain("<title>Demo &lt;Project&gt; &amp; Co");
+  });
+
+  it("the embedded report-data JSON payload contains no literal </script sequence from report data", () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    const dataBlockMatch = html.match(/<script type="application\/json" id="report-data">([\s\S]*?)<\/script>/);
+    expect(dataBlockMatch).toBeTruthy();
+    expect(dataBlockMatch![1]).not.toContain("</script");
+  });
+
+  it("includes the vendored D3 source inline, not a CDN <script src>", () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    expect(html).toContain(D3_STUB);
+    expect(html).not.toMatch(/<script[^>]+src=/);
+  });
+
+  it("includes semantic landmarks (header, nav, main, footer)", () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    expect(html).toMatch(/<header/);
+    expect(html).toMatch(/<nav/);
+    expect(html).toMatch(/<main/);
+    expect(html).toMatch(/<footer/);
+  });
+
+  it('the Control Register table uses th scope="col" header cells', () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    expect(html).toMatch(/<th scope="col">[\s\S]*?Control[\s\S]*?<\/th>/);
+  });
+
+  it("includes an @media print rule that forces closed <details> content visible", () => {
+    const html = renderReportHtml(sampleModel(), { d3Source: D3_STUB });
+    expect(html).toMatch(/@media print[\s\S]*details:not\(\[open\]\)/);
+  });
+
+  it("notes a legacy-unavailable target as an assessment limitation when metadata.target.available is false", () => {
+    const model = sampleModel({
+      metadata: { ...sampleModel().metadata, target: { available: false, repository: null, commitSha: null, branchOrTag: null, dirty: null, provenanceKind: "legacy-unavailable" } },
+      limitations: [{ code: "legacy_provenance_unavailable", severity: "warning", message: "legacy" }],
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(html).toContain("legacy-format assessment record");
+  });
+
+  it("is a pure function: same model and opts produce byte-identical output", () => {
+    const model = sampleModel();
+    expect(renderReportHtml(model, { d3Source: D3_STUB })).toBe(renderReportHtml(model, { d3Source: D3_STUB }));
+  });
+});
+
+// The H1 drops only the exact "(<target.repository>)" substring (the header's own target line
+// already states the repository) — never a generic parenthetical strip, since this project's
+// naming convention also uses a second parenthetical for genuinely distinguishing text (e.g. a
+// re-assessment qualifier) that must survive untouched.
+describe("renderReportHtml — H1 does not repeat the repository the header's target line already states", () => {
+  function h1Text(html: string): string {
+    return html.match(/<h1>([\s\S]*?)<\/h1>/)?.[1] ?? "";
+  }
+
+  it('strips "(owner/repo)" from the H1 when it matches target.repository exactly', () => {
+    const model = sampleModel({
+      metadata: { ...sampleModel().metadata, projectName: "Demo Project (example/repo)" },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project");
+  });
+
+  it("preserves a second, genuinely distinguishing parenthetical qualifier", () => {
+    const model = sampleModel({
+      metadata: { ...sampleModel().metadata, projectName: "Demo Project (example/repo) — re-assessment (abc123, 2026-10-03)" },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project — re-assessment (abc123, 2026-10-03)");
+  });
+
+  it("leaves projectName untouched when target.repository does not literally appear in it", () => {
+    const model = sampleModel({
+      metadata: { ...sampleModel().metadata, projectName: "Demo Project (some/other-repo)" },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project (some/other-repo)");
+  });
+
+  it("leaves projectName untouched when target is unavailable (legacy reports)", () => {
+    const model = sampleModel({
+      metadata: {
+        ...sampleModel().metadata,
+        projectName: "Demo Project (example/repo)",
+        target: { available: false, repository: null, commitSha: null, branchOrTag: null, dirty: null, provenanceKind: "legacy-unavailable" },
+      },
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+    expect(h1Text(html)).toBe("Demo Project (example/repo)");
+  });
+});
+
+describe("vendored D3 asset — supply-chain integrity", () => {
+  it("src/assets/d3.v7.min.js still hashes to the value recorded in src/assets/d3.v7.min.js.sha256", () => {
+    const bytes = readFileSync("src/assets/d3.v7.min.js");
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    const recorded = readFileSync("src/assets/d3.v7.min.js.sha256", "utf-8").trim();
+    expect(actual).toBe(recorded);
+  });
+});
+
+describe("renderReportHtml — control row anchor ids are unique when a control is reassessed within one run", () => {
+  it("emits two distinct <tr id> values (keyed on assessmentId) for two ControlRows sharing one controlId, and both #control-X links resolve to the latest assessment", () => {
+    const base = sampleModel();
+    const model = sampleModel({
+      executive: { ...base.executive, blockingControlFailures: ["CTRL-001"] },
+      controls: [
+        { ...base.controls[0], assessmentId: "A-001", assessedAt: "2026-10-07T00:00:00.000Z", recordedStatus: "FAIL", effectiveStatus: "FAIL" },
+        { ...base.controls[0], assessmentId: "A-002", assessedAt: "2026-10-08T00:00:00.000Z", recordedStatus: "PASS", effectiveStatus: "PASS" },
+      ],
+      findings: [{ ...base.findings[0], linkedControlIds: ["CTRL-001"] }],
+    });
+    const html = renderReportHtml(model, { d3Source: D3_STUB });
+
+    const ids = [...html.matchAll(/<tr id="control-([^"]+)"/g)].map((m) => m[1]);
+    expect(ids).toEqual(["A-001", "A-002"]);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    // Every href that links to CTRL-001 by controlId must resolve to the latest row (A-002),
+    // not the stale one (A-001) and not the ambiguous bare controlId.
+    expect(html).not.toContain(`href="#control-CTRL-001"`);
+    expect(html).toContain(`href="#control-A-002"`);
+    expect(html).not.toContain(`href="#control-A-001"`);
+  });
+});
